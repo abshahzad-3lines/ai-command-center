@@ -1,78 +1,46 @@
 /**
- * @fileoverview Chat API route with MCP tool integration
+ * @fileoverview Chat API route with Claude AI and Odoo tool calling
  * GET /api/chat - Fetch chat history
- * POST /api/chat - Send a message and get AI response (with MCP tool support)
+ * POST /api/chat - Send a message and get AI response (with Odoo tool support)
  * DELETE /api/chat - Clear chat history
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { ChatService } from '@/lib/services/chat.service';
-import { createAIAdapter } from '@/lib/adapters/ai';
-import { config } from '@/config';
-import { getMcpClient, getAvailableMcpServers } from '@/lib/mcp';
+import { createClaudeAdapter, type ClaudeTool, type ToolResultBlock } from '@/lib/adapters/ai';
+import { odooTools } from '@/lib/odoo';
+import { executeToolsForClaude } from '@/lib/ai/tool-executor';
 import type { ApiResponse } from '@/types';
 import type { Database } from '@/types/database';
 
 type ChatMessage = Database['public']['Tables']['chat_messages']['Row'];
 
 /**
- * System prompt that describes available MCP capabilities
+ * System prompt for the AI assistant with Odoo capabilities
  */
-const MCP_SYSTEM_PROMPT = `You are an AI assistant for the AI Command Center dashboard. You help users manage their work across email, calendar, tasks, and Odoo ERP.
+const SYSTEM_PROMPT = `You are an AI assistant for the AI Command Center dashboard. You help users manage their work across email, calendar, tasks, and Odoo ERP.
 
-You have access to the following MCP (Model Context Protocol) tools that you can use to help users:
+You have access to tools that let you interact with Odoo ERP:
 
-**Odoo ERP Tools:**
-- Search and view purchase orders (RFPs)
+**Purchase Orders (RFPs):**
+- Search and view purchase orders
+- Approve purchase orders waiting for approval
+- Reject/cancel purchase orders
+
+**Sales Orders:**
 - Search and view sales orders
+- Confirm draft sales orders
+- Cancel sales orders
+
+**Invoices:**
 - Search and view invoices
-- Approve purchase orders
-- Confirm sales orders
-- Register invoice payments
+- Register payments for invoices
+- Send payment reminders
 
-**Memory Tools:**
-- Store and retrieve information in a persistent knowledge graph
-- Remember user preferences and context
+When users ask about Odoo data, use the appropriate tools to fetch real data. When they ask you to perform actions (approve, confirm, cancel, etc.), use the corresponding action tools.
 
-**Browser Automation (Playwright):**
-- Navigate web pages
-- Take screenshots
-- Interact with web elements
-
-When users ask about their Odoo data (orders, invoices, RFPs), you can fetch real data from the system.
-When users ask you to remember something, store it in the memory knowledge graph.
-
-Always be helpful, concise, and proactive in suggesting actions the user can take.`;
-
-/**
- * Get available MCP tools for the AI
- */
-async function getAvailableMcpTools(): Promise<string> {
-  const client = getMcpClient();
-  const servers = getAvailableMcpServers();
-  const toolDescriptions: string[] = [];
-
-  for (const serverName of servers) {
-    try {
-      const connected = await client.connect(serverName);
-      if (connected) {
-        const tools = await client.listTools(serverName);
-        if (Array.isArray(tools) && tools.length > 0) {
-          toolDescriptions.push(`\n${serverName} tools:`);
-          for (const tool of tools) {
-            const t = tool as { name: string; description?: string };
-            toolDescriptions.push(`  - ${t.name}: ${t.description || 'No description'}`);
-          }
-        }
-      }
-    } catch {
-      // Skip servers that fail to connect
-    }
-  }
-
-  return toolDescriptions.join('\n');
-}
+Be helpful, concise, and proactive. Format data in a readable way when presenting results. If an action fails, explain what went wrong and suggest alternatives.`;
 
 interface ChatResponse {
   messages: ChatMessage[];
@@ -152,36 +120,26 @@ export async function POST(
     const recentMessages = await chatService.getRecentMessages(10);
     const formattedMessages = ChatService.formatForOpenAI(recentMessages);
 
-    // Get available MCP tools and add to system prompt
-    let mcpToolsInfo = '';
+    // Create Claude adapter with tool support
+    const claudeAdapter = createClaudeAdapter();
+
+    // Convert messages to Claude format
+    const chatMessages = formattedMessages.map((m) => ({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+    }));
+
+    // Get AI response with tool calling
+    let aiResponse = '';
     try {
-      mcpToolsInfo = await getAvailableMcpTools();
-    } catch {
-      // MCP tools unavailable - continue without them
-    }
-
-    const systemPrompt = mcpToolsInfo
-      ? `${MCP_SYSTEM_PROMPT}\n\nCurrently available tools:${mcpToolsInfo}`
-      : MCP_SYSTEM_PROMPT;
-
-    // Add system message at the start
-    const messagesWithSystem = [
-      { role: 'system' as const, content: systemPrompt },
-      ...formattedMessages,
-    ];
-
-    // Get AI response
-    const aiAdapter = createAIAdapter(
-      config.ai.provider,
-      config.ai.provider === 'openai'
-        ? { apiKey: config.ai.openai.apiKey, model: config.ai.openai.model }
-        : { baseUrl: config.ai.local.baseUrl, model: config.ai.local.model }
-    );
-
-    let aiResponse: string;
-    try {
-      aiResponse = await aiAdapter.chat(messagesWithSystem);
-    } catch {
+      aiResponse = await processWithTools(
+        claudeAdapter,
+        chatMessages,
+        odooTools,
+        SYSTEM_PROMPT
+      );
+    } catch (error) {
+      console.error('AI processing error:', error);
       aiResponse = "I'm sorry, I encountered an error processing your request. Please try again.";
     }
 
@@ -211,6 +169,92 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+/**
+ * Process a message with tool calling support
+ * Handles the tool calling loop: Claude calls tools -> execute -> send results -> get final response
+ */
+async function processWithTools(
+  claudeAdapter: ReturnType<typeof createClaudeAdapter>,
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+  tools: ClaudeTool[],
+  systemPrompt: string,
+  maxIterations: number = 5
+): Promise<string> {
+  let currentMessages = [...messages];
+  let iterations = 0;
+  let finalResponse = '';
+
+  while (iterations < maxIterations) {
+    iterations++;
+
+    // Call Claude with tools
+    const response = await claudeAdapter.chatWithTools(
+      currentMessages,
+      tools,
+      systemPrompt
+    );
+
+    // If there are tool calls, execute them
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      // Execute tools
+      const toolResults: ToolResultBlock[] = await executeToolsForClaude(
+        response.toolCalls.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          input: tc.input,
+        }))
+      );
+
+      // Build assistant message with tool use blocks
+      const assistantContent = response.toolCalls.map((tc) => ({
+        type: 'tool_use' as const,
+        id: tc.id,
+        name: tc.name,
+        input: tc.input,
+      }));
+
+      // Add assistant response with tool calls
+      currentMessages.push({
+        role: 'assistant',
+        content: JSON.stringify(assistantContent),
+      });
+
+      // Continue with tool results
+      const continuedResponse = await claudeAdapter.continueWithToolResults(
+        currentMessages,
+        tools,
+        toolResults,
+        systemPrompt
+      );
+
+      // If no more tool calls, we have the final response
+      if (!continuedResponse.toolCalls || continuedResponse.toolCalls.length === 0) {
+        finalResponse = continuedResponse.response;
+        break;
+      }
+
+      // More tool calls - continue the loop
+      // Add the response text if any
+      if (continuedResponse.response) {
+        currentMessages.push({
+          role: 'assistant',
+          content: continuedResponse.response,
+        });
+      }
+    } else {
+      // No tool calls - this is the final response
+      finalResponse = response.response;
+      break;
+    }
+  }
+
+  if (!finalResponse) {
+    finalResponse = "I processed your request but couldn't generate a proper response. Please try again.";
+  }
+
+  return finalResponse;
 }
 
 export async function DELETE(

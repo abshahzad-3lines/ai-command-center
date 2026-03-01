@@ -1,4 +1,7 @@
-// Odoo service - business logic layer for Odoo ERP integration
+/**
+ * @fileoverview Odoo Service - Business logic layer for Odoo ERP integration
+ * Uses Claude AI for intelligent analysis of Odoo records
+ */
 
 import { createOdooAdapter, toRfpSummary, toSalesOrderSummary, toInvoiceSummary } from '@/lib/adapters/odoo';
 import { createAIAdapter } from '@/lib/adapters/ai';
@@ -17,18 +20,49 @@ import type {
   OdooSuggestedAction,
 } from '@/types/odoo';
 
+/**
+ * Odoo Service - Provides business logic for Odoo ERP operations
+ * Includes AI-powered analysis using Claude
+ */
 export class OdooService {
   private adapter: OdooAdapter;
   private aiAdapter: AIAdapter;
 
   constructor() {
     this.adapter = createOdooAdapter();
-    this.aiAdapter = createAIAdapter(
-      config.ai.provider,
-      config.ai.provider === 'openai'
-        ? { apiKey: config.ai.openai.apiKey, model: config.ai.openai.model }
-        : { baseUrl: config.ai.local.baseUrl, model: config.ai.local.model }
-    );
+    // Create AI adapter based on configured provider
+    this.aiAdapter = this.createConfiguredAIAdapter();
+  }
+
+  /**
+   * Create the appropriate AI adapter based on configuration
+   */
+  private createConfiguredAIAdapter(): AIAdapter {
+    const provider = config.ai.provider;
+
+    switch (provider) {
+      case 'anthropic':
+        return createAIAdapter('anthropic', {
+          apiKey: config.ai.anthropic?.apiKey,
+          model: config.ai.anthropic?.model,
+        });
+      case 'openai':
+        return createAIAdapter('openai', {
+          apiKey: config.ai.openai.apiKey,
+          model: config.ai.openai.model,
+        });
+      case 'local':
+        return createAIAdapter('local', {
+          baseUrl: config.ai.local.baseUrl,
+          model: config.ai.local.model,
+        });
+      default:
+        // Default to Claude
+        return createAIAdapter('anthropic', {
+          apiKey: config.ai.anthropic?.apiKey,
+          model: config.ai.anthropic?.model,
+        });
+    }
   }
 
   // ============ Connection ============

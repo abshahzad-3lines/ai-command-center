@@ -14,6 +14,7 @@
     "supabase:setup": "./scripts/setup-supabase.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@azure/msal-browser": "^5.3.0",
     "@azure/msal-react": "^5.0.5",
     "@microsoft/microsoft-graph-client": "^3.0.7",

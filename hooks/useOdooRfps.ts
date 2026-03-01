@@ -18,112 +18,6 @@ interface UseOdooRfpsOptions {
   enabled?: boolean;
 }
 
-// Dummy data for development/demo
-const DUMMY_RFPS: OdooRfpSummary[] = [
-  {
-    id: 1001,
-    name: 'PO/2024/0001',
-    vendor: 'Al-Faisaliah Group',
-    vendorId: 101,
-    amount: 45000,
-    currency: 'SAR',
-    currencySymbol: 'SR',
-    state: 'to approve',
-    stateLabel: 'To Approve',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    origin: 'SO/2024/0055',
-    lineCount: 3,
-    aiSummary: 'Office furniture order including desks, chairs, and storage units',
-    aiPriority: 'high',
-    aiSuggestedAction: {
-      type: 'approve',
-      label: 'Approve Now',
-      description: 'This order is within budget and from a trusted vendor',
-      urgency: 'immediate',
-    },
-  },
-  {
-    id: 1002,
-    name: 'PO/2024/0002',
-    vendor: 'Saudi Tech Solutions',
-    vendorId: 102,
-    amount: 125000,
-    currency: 'SAR',
-    currencySymbol: 'SR',
-    state: 'to approve',
-    stateLabel: 'To Approve',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-    origin: 'IT Equipment Request',
-    lineCount: 8,
-    aiSummary: 'IT equipment including laptops, monitors, and networking gear',
-    aiPriority: 'high',
-    aiSuggestedAction: {
-      type: 'approve',
-      label: 'Review & Approve',
-      description: 'Large order - verify specifications before approval',
-      urgency: 'soon',
-    },
-  },
-  {
-    id: 1003,
-    name: 'PO/2024/0003',
-    vendor: 'Riyadh Supplies Co.',
-    vendorId: 103,
-    amount: 8500,
-    currency: 'SAR',
-    currencySymbol: 'SR',
-    state: 'draft',
-    stateLabel: 'Draft',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    lineCount: 5,
-    aiSummary: 'Office supplies and consumables for Q1',
-    aiPriority: 'low',
-    aiSuggestedAction: {
-      type: 'follow_up',
-      label: 'Send for Approval',
-      description: 'Complete draft and submit for approval',
-      urgency: 'normal',
-    },
-  },
-  {
-    id: 1004,
-    name: 'PO/2024/0004',
-    vendor: 'Gulf Medical Supplies',
-    vendorId: 104,
-    amount: 32000,
-    currency: 'SAR',
-    currencySymbol: 'SR',
-    state: 'to approve',
-    stateLabel: 'To Approve',
-    date: new Date(Date.now() - 1000 * 60 * 30), // 30 mins ago
-    origin: 'Medical Dept Request',
-    lineCount: 12,
-    aiSummary: 'Medical supplies and first aid equipment for office',
-    aiPriority: 'medium',
-    aiSuggestedAction: {
-      type: 'approve',
-      label: 'Approve',
-      description: 'Standard medical supplies order',
-      urgency: 'soon',
-    },
-  },
-  {
-    id: 1005,
-    name: 'PO/2024/0005',
-    vendor: 'Jeddah Electronics',
-    vendorId: 105,
-    amount: 78000,
-    currency: 'SAR',
-    currencySymbol: 'SR',
-    state: 'purchase',
-    stateLabel: 'Purchase Order',
-    date: new Date(Date.now() - 1000 * 60 * 60 * 48), // 2 days ago
-    lineCount: 4,
-    aiSummary: 'Server room equipment - already approved',
-    aiPriority: 'low',
-  },
-];
-
 async function fetchRfps(limit: number): Promise<OdooRfpSummary[]> {
   const response = await fetch(`/api/odoo/rfps?limit=${limit}`);
   const data: ApiResponse<OdooRfpSummary[]> = await response.json();
@@ -177,7 +71,6 @@ async function executeRfpAction(
  *
  * Features:
  * - Fetches RFP list with AI-generated summaries and priority
- * - Falls back to dummy data when API is unavailable
  * - Provides approve/reject mutation functions
  * - Caches data for 5 minutes
  *
@@ -197,8 +90,7 @@ export function useOdooRfps({ limit = 10, enabled = true }: UseOdooRfpsOptions =
     queryFn: () => fetchRfps(limit),
     enabled,
     staleTime: 1000 * 60 * 5, // 5 minutes
-    retry: false, // Don't retry on failure - use dummy data instead
-    placeholderData: DUMMY_RFPS.slice(0, limit), // Show dummy data immediately
+    retry: 2, // Retry on failure
   });
 
   const approveMutation = useMutation({
@@ -216,21 +108,16 @@ export function useOdooRfps({ limit = 10, enabled = true }: UseOdooRfpsOptions =
     },
   });
 
-  // Use dummy data as fallback when no real data, error, or still loading
-  const hasRealData = rfpsQuery.data && rfpsQuery.data.length > 0;
-  const rfps = hasRealData ? rfpsQuery.data : DUMMY_RFPS.slice(0, limit);
-
   return {
-    rfps,
-    isLoading: false, // Never show loading since we have dummy data
-    error: null, // Don't show error when using dummy data
+    rfps: rfpsQuery.data || [],
+    isLoading: rfpsQuery.isLoading,
+    error: rfpsQuery.error?.message || null,
     refetch: rfpsQuery.refetch,
     approveRfp: approveMutation.mutateAsync,
     rejectRfp: (id: number, reason?: string) =>
       rejectMutation.mutateAsync({ id, reason }),
     isApproving: approveMutation.isPending,
     isRejecting: rejectMutation.isPending,
-    isDummyData: !rfpsQuery.data || rfpsQuery.data.length === 0,
   };
 }
 

@@ -11,10 +11,14 @@ export const config = {
 
   // AI Configuration
   ai: {
-    provider: (process.env.AI_PROVIDER || 'openai') as 'openai' | 'local',
+    provider: (process.env.AI_PROVIDER || 'anthropic') as 'openai' | 'local' | 'anthropic',
     openai: {
       apiKey: process.env.OPENAI_API_KEY || '',
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    },
+    anthropic: {
+      apiKey: process.env.ANTHROPIC_API_KEY || '',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
     },
     local: {
       baseUrl: process.env.LOCAL_AI_URL || 'http://localhost:11434/v1',

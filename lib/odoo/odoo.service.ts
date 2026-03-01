@@ -1,0 +1,168 @@
+/**
+ * @fileoverview Odoo Service - High-level service for Odoo operations
+ * Wraps the Odoo adapter for use by the AI tool executor
+ */
+
+import { getOdooAdapter } from '@/lib/adapters/odoo';
+import type { OdooRfp, OdooSalesOrder, OdooInvoice, McpToolResult } from '@/types/odoo';
+
+/**
+ * Odoo Service - Singleton service for Odoo operations
+ */
+export class OdooService {
+  private static instance: OdooService | null = null;
+
+  private constructor() {}
+
+  static getInstance(): OdooService {
+    if (!OdooService.instance) {
+      OdooService.instance = new OdooService();
+    }
+    return OdooService.instance;
+  }
+
+  // ============ Connection ============
+
+  /**
+   * Check if Odoo is configured
+   */
+  isConfigured(): boolean {
+    return getOdooAdapter().isConfigured();
+  }
+
+  /**
+   * Validate connection to Odoo
+   */
+  async validateConnection(): Promise<boolean> {
+    return getOdooAdapter().validateConnection();
+  }
+
+  /**
+   * Get Odoo server info
+   */
+  async getServerInfo(): Promise<{ version: string; database: string } | null> {
+    return getOdooAdapter().getServerInfo();
+  }
+
+  // ============ Purchase Orders / RFPs ============
+
+  /**
+   * Get purchase orders
+   */
+  async getPurchaseOrders(options?: {
+    limit?: number;
+    states?: string[];
+  }): Promise<OdooRfp[]> {
+    return getOdooAdapter().fetchRfps({
+      limit: options?.limit || 10,
+      states: options?.states,
+    });
+  }
+
+  /**
+   * Get a single purchase order
+   */
+  async getPurchaseOrder(id: number): Promise<OdooRfp | null> {
+    return getOdooAdapter().getRfp(id);
+  }
+
+  /**
+   * Approve a purchase order
+   */
+  async approvePurchaseOrder(id: number): Promise<McpToolResult> {
+    return getOdooAdapter().approveRfp(id);
+  }
+
+  /**
+   * Reject a purchase order
+   */
+  async rejectPurchaseOrder(id: number, reason?: string): Promise<McpToolResult> {
+    return getOdooAdapter().rejectRfp(id, reason);
+  }
+
+  // ============ Sales Orders ============
+
+  /**
+   * Get sales orders
+   */
+  async getSalesOrders(options?: {
+    limit?: number;
+    states?: string[];
+  }): Promise<OdooSalesOrder[]> {
+    return getOdooAdapter().fetchSalesOrders({
+      limit: options?.limit || 10,
+      states: options?.states,
+    });
+  }
+
+  /**
+   * Get a single sales order
+   */
+  async getSalesOrder(id: number): Promise<OdooSalesOrder | null> {
+    return getOdooAdapter().getSalesOrder(id);
+  }
+
+  /**
+   * Confirm a sales order
+   */
+  async confirmSalesOrder(id: number): Promise<McpToolResult> {
+    return getOdooAdapter().confirmSalesOrder(id);
+  }
+
+  /**
+   * Cancel a sales order
+   */
+  async cancelSalesOrder(id: number): Promise<McpToolResult> {
+    return getOdooAdapter().cancelSalesOrder(id);
+  }
+
+  // ============ Invoices ============
+
+  /**
+   * Get invoices
+   */
+  async getInvoices(options?: {
+    limit?: number;
+    states?: string[];
+  }): Promise<OdooInvoice[]> {
+    return getOdooAdapter().fetchInvoices({
+      limit: options?.limit || 10,
+      states: options?.states,
+    });
+  }
+
+  /**
+   * Get a single invoice
+   */
+  async getInvoice(id: number): Promise<OdooInvoice | null> {
+    return getOdooAdapter().getInvoice(id);
+  }
+
+  /**
+   * Register a payment for an invoice
+   */
+  async registerPayment(
+    invoiceId: number,
+    amount: number,
+    date?: string
+  ): Promise<McpToolResult> {
+    return getOdooAdapter().registerPayment(invoiceId, amount, date);
+  }
+
+  /**
+   * Send a payment reminder
+   */
+  async sendReminder(
+    invoiceId: number,
+    type: 'friendly' | 'formal' | 'final_notice'
+  ): Promise<McpToolResult> {
+    return getOdooAdapter().sendReminder(invoiceId, type);
+  }
+}
+
+/**
+ * Get the singleton Odoo service instance
+ */
+export function getOdooService(): OdooService {
+  return OdooService.getInstance();
+}
