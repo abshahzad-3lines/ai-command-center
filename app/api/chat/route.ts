@@ -136,7 +136,9 @@ export async function POST(
         claudeAdapter,
         chatMessages,
         odooTools,
-        SYSTEM_PROMPT
+        SYSTEM_PROMPT,
+        5,
+        userId // Pass userId for action logging
       );
     } catch (error) {
       console.error('AI processing error:', error);
@@ -180,7 +182,8 @@ async function processWithTools(
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
   tools: ClaudeTool[],
   systemPrompt: string,
-  maxIterations: number = 5
+  maxIterations: number = 5,
+  userId?: string
 ): Promise<string> {
   let currentMessages = [...messages];
   let iterations = 0;
@@ -198,13 +201,14 @@ async function processWithTools(
 
     // If there are tool calls, execute them
     if (response.toolCalls && response.toolCalls.length > 0) {
-      // Execute tools
+      // Execute tools (with userId for action logging)
       const toolResults: ToolResultBlock[] = await executeToolsForClaude(
         response.toolCalls.map((tc) => ({
           id: tc.id,
           name: tc.name,
           input: tc.input,
-        }))
+        })),
+        userId
       );
 
       // Build assistant message with tool use blocks

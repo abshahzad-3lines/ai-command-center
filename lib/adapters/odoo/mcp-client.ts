@@ -156,7 +156,7 @@ export class OdooMcpClient {
     args: unknown[],
     kwargs?: Record<string, unknown>
   ): Promise<T | null> {
-    const executeArgs = [
+    const executeArgs: unknown[] = [
       this.config.database,
       this.uid,
       this.config.password,

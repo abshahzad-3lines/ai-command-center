@@ -1,9 +1,11 @@
 /**
  * @fileoverview Tool executor for Claude AI
  * Executes Odoo tools called by Claude and returns results
+ * Includes action logging for audit trail
  */
 
 import { getOdooService } from '@/lib/odoo';
+import { logOdooAction } from '@/lib/services/odoo-action-log.service';
 import type { ToolResultBlock } from '@/lib/adapters/ai/claude.adapter';
 import type {
   OdooRfp,
@@ -18,7 +20,20 @@ interface ToolExecutionResult {
   success: boolean;
   result: string;
   data?: unknown;
+  recordId?: number;
+  recordName?: string;
+  modelName?: string;
 }
+
+// Tools that modify data and should always be logged
+const WRITE_TOOLS = [
+  'approve_purchase_order',
+  'reject_purchase_order',
+  'confirm_sales_order',
+  'cancel_sales_order',
+  'register_invoice_payment',
+  'send_payment_reminder',
+];
 
 /**
  * Execute an Odoo tool and return the result
@@ -65,6 +80,9 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.order_id as number,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'purchase.order',
         };
       }
 
@@ -77,6 +95,9 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.order_id as number,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'purchase.order',
         };
       }
 
@@ -114,6 +135,9 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.order_id as number,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'sale.order',
         };
       }
 
@@ -123,6 +147,9 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.order_id as number,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'sale.order',
         };
       }
 
@@ -164,6 +191,8 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.invoice_id as number,
+          modelName: 'account.move',
         };
       }
 
@@ -176,6 +205,8 @@ export async function executeOdooTool(
           success: result.success,
           result: result.message,
           data: result.data,
+          recordId: toolInput.invoice_id as number,
+          modelName: 'account.move',
         };
       }
 
@@ -195,14 +226,31 @@ export async function executeOdooTool(
 
 /**
  * Execute multiple tools and return results formatted for Claude
+ * Logs write actions for audit trail
  */
 export async function executeToolsForClaude(
-  toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>
+  toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>,
+  userId?: string
 ): Promise<ToolResultBlock[]> {
   const results: ToolResultBlock[] = [];
 
   for (const tool of toolCalls) {
     const result = await executeOdooTool(tool.name, tool.input);
+
+    // Log write actions for audit trail
+    if (userId && WRITE_TOOLS.includes(tool.name)) {
+      await logOdooAction(userId, {
+        toolName: tool.name,
+        modelName: result.modelName,
+        recordId: result.recordId,
+        recordName: result.recordName,
+        inputArgs: tool.input,
+        result: result.data as Record<string, unknown>,
+        success: result.success,
+        errorMessage: result.success ? undefined : result.result,
+      });
+    }
+
     results.push({
       type: 'tool_result',
       tool_use_id: tool.id,
