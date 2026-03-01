@@ -13,7 +13,8 @@ import type {
 export interface OdooAdapterConfig {
   baseUrl: string;
   database: string;
-  apiKey: string;
+  username: string;
+  password: string;
   timeout?: number;
 }
 

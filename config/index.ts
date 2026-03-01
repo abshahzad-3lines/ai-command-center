@@ -30,7 +30,8 @@ export const config = {
   odoo: {
     baseUrl: process.env.ODOO_URL || '',
     database: process.env.ODOO_DATABASE || '',
-    apiKey: process.env.ODOO_API_KEY || '',
+    username: process.env.ODOO_USERNAME || '',
+    password: process.env.ODOO_PASSWORD || '',
     fetchLimit: 10,
   },
 

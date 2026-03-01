@@ -1,18 +1,24 @@
 // Odoo MCP Client - Handles communication with Odoo via JSON-RPC
+// Uses the external /jsonrpc endpoint for API calls
 
 import type { McpToolResult } from '@/types/odoo';
 
 export interface OdooMcpClientConfig {
   baseUrl: string;
   database: string;
-  apiKey: string;
+  username: string;
+  password: string;
   timeout?: number;
 }
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   method: string;
-  params: Record<string, unknown>;
+  params: {
+    service: string;
+    method: string;
+    args: unknown[];
+  };
   id: number;
 }
 
@@ -23,7 +29,10 @@ interface JsonRpcResponse<T = unknown> {
   error?: {
     code: number;
     message: string;
-    data?: unknown;
+    data?: {
+      message?: string;
+      debug?: string;
+    };
   };
 }
 
@@ -45,17 +54,19 @@ export class OdooMcpClient {
   async authenticate(): Promise<number> {
     if (this.uid) return this.uid;
 
-    const response = await this.jsonRpc<number | false>('/web/session/authenticate', {
-      db: this.config.database,
-      login: 'api', // API key authentication
-      password: this.config.apiKey,
-    });
+    // Use the external /jsonrpc endpoint for authentication
+    const uid = await this.jsonRpc<number | false>('common', 'authenticate', [
+      this.config.database,
+      this.config.username,
+      this.config.password,
+      {},
+    ]);
 
-    if (response === false || typeof response !== 'number') {
+    if (uid === false || typeof uid !== 'number') {
       throw new Error('Authentication failed');
     }
 
-    this.uid = response;
+    this.uid = uid;
     return this.uid;
   }
 
@@ -76,7 +87,7 @@ export class OdooMcpClient {
    */
   async getServerInfo(): Promise<{ version: string; database: string } | null> {
     try {
-      const result = await this.jsonRpc<{ server_version: string }>('/web/webclient/version_info', {});
+      const result = await this.jsonRpc<{ server_version: string }>('common', 'version', []);
       return {
         version: result?.server_version || 'unknown',
         database: this.config.database,
@@ -97,16 +108,18 @@ export class OdooMcpClient {
   ): Promise<T[]> {
     await this.authenticate();
 
-    const result = await this.jsonRpc<{ records: T[] }>('/web/dataset/search_read', {
-      model,
-      domain,
+    const kwargs: Record<string, unknown> = {
       fields,
       limit: options?.limit || 80,
       offset: options?.offset || 0,
-      sort: options?.order || 'id desc',
-    });
+    };
 
-    return result?.records || [];
+    if (options?.order) {
+      kwargs.order = options.order;
+    }
+
+    const result = await this.executeKw<T[]>(model, 'search_read', [domain], kwargs);
+    return result || [];
   }
 
   /**
@@ -115,12 +128,12 @@ export class OdooMcpClient {
   async read<T = unknown>(model: string, ids: number[], fields: string[]): Promise<T[]> {
     await this.authenticate();
 
-    const result = await this.callKw<T[]>(model, 'read', [ids, fields]);
+    const result = await this.executeKw<T[]>(model, 'read', [ids, fields]);
     return result || [];
   }
 
   /**
-   * Call a method on a model (execute_kw equivalent)
+   * Call a method on a model (execute_kw)
    */
   async callKw<T = unknown>(
     model: string,
@@ -130,14 +143,34 @@ export class OdooMcpClient {
   ): Promise<T> {
     await this.authenticate();
 
-    const result = await this.jsonRpc<T>('/web/dataset/call_kw', {
+    const result = await this.executeKw<T>(model, method, args, kwargs);
+    return result as T;
+  }
+
+  /**
+   * Execute execute_kw on Odoo
+   */
+  private async executeKw<T = unknown>(
+    model: string,
+    method: string,
+    args: unknown[],
+    kwargs?: Record<string, unknown>
+  ): Promise<T | null> {
+    const executeArgs = [
+      this.config.database,
+      this.uid,
+      this.config.password,
       model,
       method,
       args,
-      kwargs: kwargs || {},
-    });
+    ];
 
-    return result as T;
+    // Add kwargs if provided
+    if (kwargs && Object.keys(kwargs).length > 0) {
+      executeArgs.push(kwargs);
+    }
+
+    return this.jsonRpc<T>('object', 'execute_kw', executeArgs);
   }
 
   /**
@@ -185,16 +218,20 @@ export class OdooMcpClient {
   }
 
   /**
-   * Make a JSON-RPC request to Odoo
+   * Make a JSON-RPC request to Odoo's /jsonrpc endpoint
    */
-  private async jsonRpc<T>(endpoint: string, params: Record<string, unknown>): Promise<T | null> {
-    const url = `${this.config.baseUrl}${endpoint}`;
+  private async jsonRpc<T>(service: string, method: string, args: unknown[]): Promise<T | null> {
+    const url = `${this.config.baseUrl}/jsonrpc`;
     const requestId = ++this.requestId;
 
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
       method: 'call',
-      params,
+      params: {
+        service,
+        method,
+        args,
+      },
       id: requestId,
     };
 
@@ -220,7 +257,8 @@ export class OdooMcpClient {
       const json = (await response.json()) as JsonRpcResponse<T>;
 
       if (json.error) {
-        throw new Error(json.error.message || 'RPC Error');
+        const errorMessage = json.error.data?.message || json.error.message || 'RPC Error';
+        throw new Error(errorMessage);
       }
 
       return json.result ?? null;
@@ -237,6 +275,6 @@ export class OdooMcpClient {
    * Get configuration status
    */
   isConfigured(): boolean {
-    return !!(this.config.baseUrl && this.config.database && this.config.apiKey);
+    return !!(this.config.baseUrl && this.config.database && this.config.username && this.config.password);
   }
 }

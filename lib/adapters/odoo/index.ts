@@ -15,7 +15,8 @@ export function createOdooAdapter(customConfig?: Partial<OdooAdapterConfig>): Od
   const adapterConfig: OdooAdapterConfig = {
     baseUrl: customConfig?.baseUrl || config.odoo?.baseUrl || '',
     database: customConfig?.database || config.odoo?.database || '',
-    apiKey: customConfig?.apiKey || config.odoo?.apiKey || '',
+    username: customConfig?.username || config.odoo?.username || '',
+    password: customConfig?.password || config.odoo?.password || '',
     timeout: customConfig?.timeout || 30000,
   };
 
