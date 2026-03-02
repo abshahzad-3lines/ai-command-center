@@ -1,12 +1,12 @@
 // Odoo Adapter - Main adapter for Odoo ERP integration
 
-import { OdooMcpClient } from './mcp-client';
+import { OdooJsonRpcClient } from './jsonrpc-client';
 import type { OdooAdapter, OdooAdapterConfig } from './types';
 import type {
   OdooRfp,
   OdooSalesOrder,
   OdooInvoice,
-  McpToolResult,
+  OdooToolResult,
 } from '@/types/odoo';
 
 // Field definitions for each model
@@ -54,10 +54,10 @@ const INVOICE_FIELDS = [
 ];
 
 export class OdooAdapterImpl implements OdooAdapter {
-  private client: OdooMcpClient;
+  private client: OdooJsonRpcClient;
 
   constructor(config: OdooAdapterConfig) {
-    this.client = new OdooMcpClient(config);
+    this.client = new OdooJsonRpcClient(config);
   }
 
   // ============ Connection ============
@@ -107,7 +107,7 @@ export class OdooAdapterImpl implements OdooAdapter {
     return records[0] || null;
   }
 
-  async approveRfp(id: number): Promise<McpToolResult> {
+  async approveRfp(id: number): Promise<OdooToolResult> {
     try {
       // First check the current state
       const rfp = await this.getRfp(id);
@@ -140,7 +140,7 @@ export class OdooAdapterImpl implements OdooAdapter {
     }
   }
 
-  async rejectRfp(id: number, reason?: string): Promise<McpToolResult> {
+  async rejectRfp(id: number, reason?: string): Promise<OdooToolResult> {
     try {
       const rfp = await this.getRfp(id);
       if (!rfp) {
@@ -208,7 +208,20 @@ export class OdooAdapterImpl implements OdooAdapter {
     return records[0] || null;
   }
 
-  async confirmSalesOrder(id: number): Promise<McpToolResult> {
+  /**
+   * Find a sales order by name (e.g., "SO-3L-03058")
+   */
+  async findSalesOrderByName(name: string): Promise<OdooSalesOrder | null> {
+    const records = await this.client.searchRead<OdooSalesOrder>(
+      'sale.order',
+      [['name', '=', name]],
+      SALES_ORDER_FIELDS,
+      { limit: 1 }
+    );
+    return records[0] || null;
+  }
+
+  async confirmSalesOrder(id: number): Promise<OdooToolResult> {
     try {
       const order = await this.getSalesOrder(id);
       if (!order) {
@@ -239,7 +252,7 @@ export class OdooAdapterImpl implements OdooAdapter {
     }
   }
 
-  async cancelSalesOrder(id: number): Promise<McpToolResult> {
+  async cancelSalesOrder(id: number): Promise<OdooToolResult> {
     try {
       const order = await this.getSalesOrder(id);
       if (!order) {
@@ -297,7 +310,7 @@ export class OdooAdapterImpl implements OdooAdapter {
     return records[0] || null;
   }
 
-  async registerPayment(invoiceId: number, amount: number, date?: string): Promise<McpToolResult> {
+  async registerPayment(invoiceId: number, amount: number, date?: string): Promise<OdooToolResult> {
     try {
       const invoice = await this.getInvoice(invoiceId);
       if (!invoice) {
@@ -347,7 +360,7 @@ export class OdooAdapterImpl implements OdooAdapter {
   async sendReminder(
     invoiceId: number,
     reminderType: 'friendly' | 'formal' | 'final_notice'
-  ): Promise<McpToolResult> {
+  ): Promise<OdooToolResult> {
     try {
       const invoice = await this.getInvoice(invoiceId);
       if (!invoice) {
@@ -378,9 +391,9 @@ export class OdooAdapterImpl implements OdooAdapter {
     }
   }
 
-  // ============ MCP Tool Execution ============
+  // ============ Tool Execution ============
 
-  async executeTool(toolName: string, args: Record<string, unknown>): Promise<McpToolResult> {
+  async executeTool(toolName: string, args: Record<string, unknown>): Promise<OdooToolResult> {
     switch (toolName) {
       case 'approve_purchase_request':
         return this.approveRfp(args.purchase_order_id as number);

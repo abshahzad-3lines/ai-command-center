@@ -38,20 +38,53 @@ export default function ChatPage() {
     };
 
     addMessage(userMessage);
+    const messageContent = input.trim();
     setInput('');
     setTyping(true);
 
-    // Mock AI response with delay
-    setTimeout(() => {
-      const aiMessage: Message = {
+    try {
+      // Call the real AI chat API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user?.localAccountId || 'anonymous',
+        },
+        body: JSON.stringify({ message: messageContent }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data?.response) {
+        const aiMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.data.response,
+          timestamp: new Date(),
+        };
+        addMessage(aiMessage);
+      } else {
+        // Handle error response
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.error || "Sorry, I couldn't process your request. Please try again.",
+          timestamp: new Date(),
+        };
+        addMessage(errorMessage);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "Hello! I'm your AI assistant. I'm here to help you manage your emails, schedule, and tasks. This is a placeholder response - AI integration coming soon!",
+        content: "Sorry, there was an error connecting to the AI. Please try again.",
         timestamp: new Date(),
       };
-      addMessage(aiMessage);
+      addMessage(errorMessage);
+    } finally {
       setTyping(false);
-    }, 1000);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

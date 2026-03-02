@@ -4,7 +4,7 @@
  */
 
 import { getOdooAdapter } from '@/lib/adapters/odoo';
-import type { OdooRfp, OdooSalesOrder, OdooInvoice, McpToolResult } from '@/types/odoo';
+import type { OdooRfp, OdooSalesOrder, OdooInvoice, OdooToolResult } from '@/types/odoo';
 
 /**
  * Odoo Service - Singleton service for Odoo operations
@@ -69,14 +69,14 @@ export class OdooService {
   /**
    * Approve a purchase order
    */
-  async approvePurchaseOrder(id: number): Promise<McpToolResult> {
+  async approvePurchaseOrder(id: number): Promise<OdooToolResult> {
     return getOdooAdapter().approveRfp(id);
   }
 
   /**
    * Reject a purchase order
    */
-  async rejectPurchaseOrder(id: number, reason?: string): Promise<McpToolResult> {
+  async rejectPurchaseOrder(id: number, reason?: string): Promise<OdooToolResult> {
     return getOdooAdapter().rejectRfp(id, reason);
   }
 
@@ -103,16 +103,23 @@ export class OdooService {
   }
 
   /**
+   * Find a sales order by name (e.g., "SO-3L-03058")
+   */
+  async findSalesOrderByName(name: string): Promise<OdooSalesOrder | null> {
+    return getOdooAdapter().findSalesOrderByName(name);
+  }
+
+  /**
    * Confirm a sales order
    */
-  async confirmSalesOrder(id: number): Promise<McpToolResult> {
+  async confirmSalesOrder(id: number): Promise<OdooToolResult> {
     return getOdooAdapter().confirmSalesOrder(id);
   }
 
   /**
    * Cancel a sales order
    */
-  async cancelSalesOrder(id: number): Promise<McpToolResult> {
+  async cancelSalesOrder(id: number): Promise<OdooToolResult> {
     return getOdooAdapter().cancelSalesOrder(id);
   }
 
@@ -145,7 +152,7 @@ export class OdooService {
     invoiceId: number,
     amount: number,
     date?: string
-  ): Promise<McpToolResult> {
+  ): Promise<OdooToolResult> {
     return getOdooAdapter().registerPayment(invoiceId, amount, date);
   }
 
@@ -155,8 +162,39 @@ export class OdooService {
   async sendReminder(
     invoiceId: number,
     type: 'friendly' | 'formal' | 'final_notice'
-  ): Promise<McpToolResult> {
+  ): Promise<OdooToolResult> {
     return getOdooAdapter().sendReminder(invoiceId, type);
+  }
+
+  // ============ Generic Search ============
+
+  /**
+   * Search any Odoo model with domain filters
+   */
+  async searchRecords<T = Record<string, unknown>>(
+    model: string,
+    domain: unknown[] = [],
+    fields: string[] = ['id', 'name', 'display_name'],
+    options?: { limit?: number; offset?: number; order?: string }
+  ): Promise<T[]> {
+    return getOdooAdapter().searchRead<T>(model, domain, fields, options);
+  }
+
+  /**
+   * Get a single record from any Odoo model by ID
+   */
+  async getRecord<T = Record<string, unknown>>(
+    model: string,
+    id: number,
+    fields?: string[]
+  ): Promise<T | null> {
+    const records = await getOdooAdapter().searchRead<T>(
+      model,
+      [['id', '=', id]],
+      fields || [],
+      { limit: 1 }
+    );
+    return records.length > 0 ? records[0] : null;
   }
 }
 

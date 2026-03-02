@@ -2,7 +2,7 @@
 
 export * from './types';
 export * from './odoo.adapter';
-export * from './mcp-client';
+export * from './jsonrpc-client';
 
 import { OdooAdapterImpl } from './odoo.adapter';
 import type { OdooAdapter, OdooAdapterConfig } from './types';

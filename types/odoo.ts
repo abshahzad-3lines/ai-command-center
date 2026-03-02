@@ -1,4 +1,4 @@
-// Odoo ERP types for MCP integration
+// Odoo ERP types
 
 // ============ Base Types ============
 export interface OdooCredentials {
@@ -167,8 +167,8 @@ export interface OdooAIAnalysis {
   insights?: string[];
 }
 
-// ============ MCP Tool Types ============
-export interface McpToolDefinition {
+// ============ Tool Types ============
+export interface OdooToolDefinition {
   name: string;
   description: string;
   inputSchema: {
@@ -178,14 +178,14 @@ export interface McpToolDefinition {
   };
 }
 
-export interface McpToolResult {
+export interface OdooToolResult {
   success: boolean;
   message: string;
   data?: Record<string, unknown>;
   error?: string;
 }
 
-export interface McpExecuteRequest {
+export interface OdooToolExecuteRequest {
   tool: string;
   arguments: Record<string, unknown>;
 }

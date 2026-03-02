@@ -2,15 +2,15 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiResponse } from '@/types';
-import type { McpToolResult } from '@/types/odoo';
+import type { OdooToolResult } from '@/types/odoo';
 
 interface ExecuteToolParams {
   tool: string;
   arguments: Record<string, unknown>;
 }
 
-async function executeMcpTool(params: ExecuteToolParams): Promise<McpToolResult> {
-  const response = await fetch('/api/odoo/mcp/execute', {
+async function executeOdooTool(params: ExecuteToolParams): Promise<OdooToolResult> {
+  const response = await fetch('/api/odoo/tools/execute', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -18,20 +18,20 @@ async function executeMcpTool(params: ExecuteToolParams): Promise<McpToolResult>
     body: JSON.stringify(params),
   });
 
-  const data: ApiResponse<McpToolResult> = await response.json();
+  const data: ApiResponse<OdooToolResult> = await response.json();
 
   if (!data.success || !data.data) {
-    throw new Error(data.error || 'Failed to execute MCP tool');
+    throw new Error(data.error || 'Failed to execute Odoo tool');
   }
 
   return data.data;
 }
 
-export function useOdooMcp() {
+export function useOdooTools() {
   const queryClient = useQueryClient();
 
   const executeMutation = useMutation({
-    mutationFn: executeMcpTool,
+    mutationFn: executeOdooTool,
     onSuccess: (_, variables) => {
       // Invalidate relevant queries based on the tool executed
       const tool = variables.tool.toLowerCase();

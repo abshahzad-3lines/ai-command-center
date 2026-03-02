@@ -24,21 +24,41 @@ const SYSTEM_PROMPT = `You are an AI assistant for the AI Command Center dashboa
 You have access to tools that let you interact with Odoo ERP:
 
 **Purchase Orders (RFPs):**
-- Search and view purchase orders
-- Approve purchase orders waiting for approval
-- Reject/cancel purchase orders
+- search_purchase_orders: Search for purchase orders
+- get_purchase_order: Get details by ID
+- approve_purchase_order: Approve a purchase order
+- reject_purchase_order: Reject/cancel a purchase order
 
 **Sales Orders:**
-- Search and view sales orders
-- Confirm draft sales orders
-- Cancel sales orders
+- search_sales_orders: Search for sales orders
+- get_sales_order: Get details by ID
+- find_sales_order_by_name: Find by order name (e.g., "SO-3L-03058")
+- confirm_sales_order: Confirm a draft/sent order
+- cancel_sales_order: Cancel/delete a sales order (accepts order_id OR order_name)
 
 **Invoices:**
-- Search and view invoices
-- Register payments for invoices
-- Send payment reminders
+- search_invoices: Search for invoices
+- get_invoice: Get details by ID
+- register_invoice_payment: Register a payment
+- send_payment_reminder: Send a payment reminder
 
-When users ask about Odoo data, use the appropriate tools to fetch real data. When they ask you to perform actions (approve, confirm, cancel, etc.), use the corresponding action tools.
+**Generic Odoo Search:**
+- search_odoo_records: Search ANY Odoo model with domain filters (contacts, products, employees, deliveries, CRM leads, projects, tasks, payments, etc.)
+- get_odoo_record: Get a specific record from any model by ID
+
+Common models: res.partner (contacts), product.product (products), hr.employee (employees), stock.picking (deliveries), crm.lead (CRM), project.project (projects), project.task (tasks), account.payment (payments), res.users (users)
+
+Use generic tools for any model NOT covered by the specific tools above. Prefer specific tools (search_purchase_orders, search_sales_orders, search_invoices) when they exist.
+
+**IMPORTANT WORKFLOW:**
+1. When a user mentions an order by name (like "SO-3L-03058"), use find_sales_order_by_name to get its ID first, or use cancel_sales_order with order_name directly.
+2. For actions like "delete", "remove", or "cancel" a sales order, use the cancel_sales_order tool.
+3. Always confirm the action with the user after executing it.
+
+**Examples:**
+- User: "Cancel SO-3L-03058" → Use cancel_sales_order with order_name="SO-3L-03058"
+- User: "Delete sales order 12345" → Use cancel_sales_order with order_id=12345
+- User: "Show me the details of SO-3L-03058" → Use find_sales_order_by_name
 
 Be helpful, concise, and proactive. Format data in a readable way when presenting results. If an action fails, explain what went wrong and suggest alternatives.`;
 
@@ -108,26 +128,44 @@ export async function POST(
       );
     }
 
-    const chatService = new ChatService(supabase, userId);
+    // For now, always use null user_id since we don't have Supabase auth linked to Microsoft auth
+    // The Microsoft localAccountId is not a Supabase profile ID
+    // TODO: Link Microsoft accounts to Supabase profiles for proper user tracking
 
-    // Save user message
-    await chatService.addMessage({
-      role: 'user',
-      content: message,
-    });
+    let chatMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
 
-    // Get recent context
-    const recentMessages = await chatService.getRecentMessages(10);
-    const formattedMessages = ChatService.formatForOpenAI(recentMessages);
+    // Create chat service with null user_id (anonymous mode)
+    const chatService = new ChatService(supabase, null);
+
+    if (true) { // Always try to save messages now that user_id is nullable
+
+      // Save user message
+      await chatService.addMessage({
+        role: 'user',
+        content: message,
+      });
+
+      // Get recent context
+      const recentMessages = await chatService.getRecentMessages(10);
+      const formattedMessages = ChatService.formatForOpenAI(recentMessages);
+
+      // Convert messages to Claude format
+      chatMessages = formattedMessages.map((m) => ({
+        role: m.role as 'user' | 'assistant' | 'system',
+        content: m.content,
+      }));
+    }
+
+    // Always ensure the current message is included
+    if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.content !== message) {
+      chatMessages.push({
+        role: 'user',
+        content: message,
+      });
+    }
 
     // Create Claude adapter with tool support
     const claudeAdapter = createClaudeAdapter();
-
-    // Convert messages to Claude format
-    const chatMessages = formattedMessages.map((m) => ({
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: m.content,
-    }));
 
     // Get AI response with tool calling
     let aiResponse = '';
@@ -212,25 +250,26 @@ async function processWithTools(
       );
 
       // Build assistant message with tool use blocks
-      const assistantContent = response.toolCalls.map((tc) => ({
+      const toolUseBlocks = response.toolCalls.map((tc) => ({
         type: 'tool_use' as const,
         id: tc.id,
         name: tc.name,
         input: tc.input,
       }));
 
-      // Add assistant response with tool calls
+      // Add placeholder for assistant message (will be replaced by continueWithToolResults)
       currentMessages.push({
         role: 'assistant',
-        content: JSON.stringify(assistantContent),
+        content: '[tool_use]', // Placeholder - actual content is in toolUseBlocks
       });
 
-      // Continue with tool results
+      // Continue with tool results - pass the actual tool use blocks
       const continuedResponse = await claudeAdapter.continueWithToolResults(
         currentMessages,
         tools,
         toolResults,
-        systemPrompt
+        systemPrompt,
+        toolUseBlocks
       );
 
       // If no more tool calls, we have the final response

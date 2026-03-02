@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiResponse } from '@/types';
-import type { OdooSalesOrderSummary, OdooSalesOrder, McpToolResult } from '@/types/odoo';
+import type { OdooSalesOrderSummary, OdooSalesOrder, OdooToolResult } from '@/types/odoo';
 
 /**
  * Configuration options for the useOdooSales hook
@@ -47,7 +47,7 @@ async function fetchSalesOrder(id: number): Promise<OdooSalesOrder> {
 async function executeSalesAction(
   id: number,
   action: 'confirm' | 'cancel'
-): Promise<McpToolResult> {
+): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/sales/${id}`, {
     method: 'POST',
     headers: {
@@ -56,7 +56,7 @@ async function executeSalesAction(
     body: JSON.stringify({ action }),
   });
 
-  const data: ApiResponse<McpToolResult> = await response.json();
+  const data: ApiResponse<OdooToolResult> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'Failed to execute action');

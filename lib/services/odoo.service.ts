@@ -16,7 +16,7 @@ import type {
   OdooInvoice,
   OdooInvoiceSummary,
   OdooAIAnalysis,
-  McpToolResult,
+  OdooToolResult,
   OdooSuggestedAction,
 } from '@/types/odoo';
 
@@ -114,11 +114,11 @@ export class OdooService {
     return this.adapter.getRfp(id);
   }
 
-  async approveRfp(id: number): Promise<McpToolResult> {
+  async approveRfp(id: number): Promise<OdooToolResult> {
     return this.adapter.approveRfp(id);
   }
 
-  async rejectRfp(id: number, reason?: string): Promise<McpToolResult> {
+  async rejectRfp(id: number, reason?: string): Promise<OdooToolResult> {
     return this.adapter.rejectRfp(id, reason);
   }
 
@@ -155,11 +155,11 @@ export class OdooService {
     return this.adapter.getSalesOrder(id);
   }
 
-  async confirmSalesOrder(id: number): Promise<McpToolResult> {
+  async confirmSalesOrder(id: number): Promise<OdooToolResult> {
     return this.adapter.confirmSalesOrder(id);
   }
 
-  async cancelSalesOrder(id: number): Promise<McpToolResult> {
+  async cancelSalesOrder(id: number): Promise<OdooToolResult> {
     return this.adapter.cancelSalesOrder(id);
   }
 
@@ -196,17 +196,17 @@ export class OdooService {
     return this.adapter.getInvoice(id);
   }
 
-  async registerPayment(invoiceId: number, amount: number, date?: string): Promise<McpToolResult> {
+  async registerPayment(invoiceId: number, amount: number, date?: string): Promise<OdooToolResult> {
     return this.adapter.registerPayment(invoiceId, amount, date);
   }
 
-  async sendReminder(invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice'): Promise<McpToolResult> {
+  async sendReminder(invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice'): Promise<OdooToolResult> {
     return this.adapter.sendReminder(invoiceId, reminderType);
   }
 
-  // ============ MCP Tool Execution ============
+  // ============ Tool Execution ============
 
-  async executeTool(toolName: string, args: Record<string, unknown>): Promise<McpToolResult> {
+  async executeTool(toolName: string, args: Record<string, unknown>): Promise<OdooToolResult> {
     return this.adapter.executeTool(toolName, args);
   }
 

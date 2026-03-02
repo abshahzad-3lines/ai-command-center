@@ -276,17 +276,37 @@ Use these tools when users ask about purchase orders, sales orders, invoices, or
     messages: ChatMessage[],
     tools: ClaudeTool[],
     toolResults: ToolResultBlock[],
-    systemPrompt?: string
+    systemPrompt?: string,
+    toolUseBlocks?: ToolUseBlock[]
   ): Promise<ChatWithToolsResponse> {
     // Build the conversation with tool results
-    const anthropicMessages: Anthropic.MessageParam[] = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      }));
+    const anthropicMessages: Anthropic.MessageParam[] = [];
 
-    // Add tool results as the last user message
+    // Process all messages except the last assistant message (which contains tool_use)
+    for (let i = 0; i < messages.length - 1; i++) {
+      const m = messages[i];
+      if (m.role !== 'system') {
+        anthropicMessages.push({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        });
+      }
+    }
+
+    // Add the assistant message with proper tool_use content blocks
+    if (toolUseBlocks && toolUseBlocks.length > 0) {
+      anthropicMessages.push({
+        role: 'assistant',
+        content: toolUseBlocks.map((tu) => ({
+          type: 'tool_use' as const,
+          id: tu.id,
+          name: tu.name,
+          input: tu.input,
+        })),
+      });
+    }
+
+    // Add tool results as the user message
     anthropicMessages.push({
       role: 'user',
       content: toolResults.map((tr) => ({

@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiResponse } from '@/types';
-import type { OdooInvoiceSummary, OdooInvoice, McpToolResult } from '@/types/odoo';
+import type { OdooInvoiceSummary, OdooInvoice, OdooToolResult } from '@/types/odoo';
 
 /**
  * Configuration options for the useOdooInvoices hook
@@ -49,7 +49,7 @@ async function registerPayment(
   invoiceId: number,
   amount: number,
   date?: string
-): Promise<McpToolResult> {
+): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/invoices/${invoiceId}`, {
     method: 'POST',
     headers: {
@@ -58,7 +58,7 @@ async function registerPayment(
     body: JSON.stringify({ action: 'register_payment', amount, date }),
   });
 
-  const data: ApiResponse<McpToolResult> = await response.json();
+  const data: ApiResponse<OdooToolResult> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'Failed to register payment');
@@ -70,7 +70,7 @@ async function registerPayment(
 async function sendReminder(
   invoiceId: number,
   reminderType: 'friendly' | 'formal' | 'final_notice'
-): Promise<McpToolResult> {
+): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/invoices/${invoiceId}`, {
     method: 'POST',
     headers: {
@@ -79,7 +79,7 @@ async function sendReminder(
     body: JSON.stringify({ action: 'send_reminder', reminderType }),
   });
 
-  const data: ApiResponse<McpToolResult> = await response.json();
+  const data: ApiResponse<OdooToolResult> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'Failed to send reminder');

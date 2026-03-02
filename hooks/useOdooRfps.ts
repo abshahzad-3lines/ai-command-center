@@ -6,7 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ApiResponse } from '@/types';
-import type { OdooRfpSummary, OdooRfp, McpToolResult } from '@/types/odoo';
+import type { OdooRfpSummary, OdooRfp, OdooToolResult } from '@/types/odoo';
 
 /**
  * Configuration options for the useOdooRfps hook
@@ -48,7 +48,7 @@ async function executeRfpAction(
   id: number,
   action: 'approve' | 'reject',
   reason?: string
-): Promise<McpToolResult> {
+): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/rfps/${id}/action`, {
     method: 'POST',
     headers: {
@@ -57,7 +57,7 @@ async function executeRfpAction(
     body: JSON.stringify({ action, reason }),
   });
 
-  const data: ApiResponse<McpToolResult> = await response.json();
+  const data: ApiResponse<OdooToolResult> = await response.json();
 
   if (!data.success || !data.data) {
     throw new Error(data.error || 'Failed to execute action');

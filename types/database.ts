@@ -120,7 +120,7 @@ export type Database = {
           id: string
           metadata: Json | null
           role: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           content: string
@@ -128,7 +128,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           role: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           content?: string
@@ -136,7 +136,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           role?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -311,8 +311,9 @@ export type Database = {
           },
         ]
       }
-      odoo_mcp_actions: {
+      odoo_action_logs: {
         Row: {
+          actor_email: string | null
           error_message: string | null
           executed_at: string | null
           id: string
@@ -323,9 +324,10 @@ export type Database = {
           result: Json | null
           success: boolean | null
           tool_name: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
+          actor_email?: string | null
           error_message?: string | null
           executed_at?: string | null
           id?: string
@@ -336,9 +338,10 @@ export type Database = {
           result?: Json | null
           success?: boolean | null
           tool_name: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
+          actor_email?: string | null
           error_message?: string | null
           executed_at?: string | null
           id?: string
@@ -349,11 +352,11 @@ export type Database = {
           result?: Json | null
           success?: boolean | null
           tool_name?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "odoo_mcp_actions_user_id_fkey"
+            foreignKeyName: "odoo_action_logs_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"

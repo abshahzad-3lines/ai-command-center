@@ -1,9 +1,9 @@
-// Odoo MCP Client - Handles communication with Odoo via JSON-RPC
+// Odoo JSON-RPC Client - Handles communication with Odoo via JSON-RPC
 // Uses the external /jsonrpc endpoint for API calls
 
-import type { McpToolResult } from '@/types/odoo';
+import type { OdooToolResult } from '@/types/odoo';
 
-export interface OdooMcpClientConfig {
+export interface OdooJsonRpcClientConfig {
   baseUrl: string;
   database: string;
   username: string;
@@ -36,12 +36,12 @@ interface JsonRpcResponse<T = unknown> {
   };
 }
 
-export class OdooMcpClient {
-  private config: OdooMcpClientConfig;
+export class OdooJsonRpcClient {
+  private config: OdooJsonRpcClientConfig;
   private requestId: number = 0;
   private uid: number | null = null;
 
-  constructor(config: OdooMcpClientConfig) {
+  constructor(config: OdooJsonRpcClientConfig) {
     this.config = {
       ...config,
       timeout: config.timeout || 30000,
@@ -176,7 +176,7 @@ export class OdooMcpClient {
   /**
    * Execute a workflow action on a record
    */
-  async executeAction(model: string, action: string, ids: number[]): Promise<McpToolResult> {
+  async executeAction(model: string, action: string, ids: number[]): Promise<OdooToolResult> {
     try {
       await this.callKw(model, action, [ids]);
       return {

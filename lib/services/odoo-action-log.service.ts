@@ -6,8 +6,8 @@
 import { createClient } from '@/lib/supabase/server';
 import type { Tables, TablesInsert } from '@/types/database';
 
-export type OdooActionLog = Tables<'odoo_mcp_actions'>;
-export type OdooActionLogInsert = TablesInsert<'odoo_mcp_actions'>;
+export type OdooActionLog = Tables<'odoo_action_logs'>;
+export type OdooActionLogInsert = TablesInsert<'odoo_action_logs'>;
 
 export interface ActionLogEntry {
   toolName: string;
@@ -18,20 +18,27 @@ export interface ActionLogEntry {
   result?: Record<string, unknown>;
   success: boolean;
   errorMessage?: string;
+  actorEmail?: string; // The email/username of the person performing the action
 }
 
 /**
  * Log an Odoo action to the database
+ * @param userId - Optional Supabase user UUID (can be null for anonymous users)
+ * @param entry - Action log entry with details
  */
 export async function logOdooAction(
-  userId: string,
+  userId: string | null,
   entry: ActionLogEntry
 ): Promise<OdooActionLog | null> {
   try {
     const supabase = await createClient();
 
+    // Check if userId is a valid UUID
+    const isValidUuid = userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+
     const insertData: OdooActionLogInsert = {
-      user_id: userId,
+      user_id: isValidUuid ? userId : null,
+      actor_email: entry.actorEmail || null,
       tool_name: entry.toolName,
       model_name: entry.modelName || null,
       record_id: entry.recordId || null,
@@ -44,7 +51,7 @@ export async function logOdooAction(
     };
 
     const { data, error } = await supabase
-      .from('odoo_mcp_actions')
+      .from('odoo_action_logs')
       .insert(insertData)
       .select()
       .single();
@@ -78,7 +85,7 @@ export async function getActionHistory(
     const supabase = await createClient();
 
     let query = supabase
-      .from('odoo_mcp_actions')
+      .from('odoo_action_logs')
       .select('*')
       .eq('user_id', userId)
       .order('executed_at', { ascending: false });
@@ -132,7 +139,7 @@ export async function getActionStats(
     const supabase = await createClient();
 
     const { data, error } = await supabase
-      .from('odoo_mcp_actions')
+      .from('odoo_action_logs')
       .select('tool_name, success')
       .eq('user_id', userId);
 

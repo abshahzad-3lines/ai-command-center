@@ -6,6 +6,7 @@
 
 import { getOdooService } from '@/lib/odoo';
 import { logOdooAction } from '@/lib/services/odoo-action-log.service';
+import { config } from '@/config';
 import type { ToolResultBlock } from '@/lib/adapters/ai/claude.adapter';
 import type {
   OdooRfp,
@@ -129,6 +130,24 @@ export async function executeOdooTool(
         };
       }
 
+      case 'find_sales_order_by_name': {
+        const order = await odoo.findSalesOrderByName(toolInput.order_name as string);
+        if (!order) {
+          return {
+            success: false,
+            result: `Sales order with name "${toolInput.order_name}" not found`,
+          };
+        }
+        return {
+          success: true,
+          result: JSON.stringify(formatSalesOrder(order), null, 2),
+          data: order,
+          recordId: order.id,
+          recordName: order.name,
+          modelName: 'sale.order',
+        };
+      }
+
       case 'confirm_sales_order': {
         const result = await odoo.confirmSalesOrder(toolInput.order_id as number);
         return {
@@ -142,13 +161,37 @@ export async function executeOdooTool(
       }
 
       case 'cancel_sales_order': {
-        const result = await odoo.cancelSalesOrder(toolInput.order_id as number);
+        // Support both order_id and order_name
+        let orderId = toolInput.order_id as number | undefined;
+        let orderName = toolInput.order_name as string | undefined;
+
+        // If order_name is provided but not order_id, look up the order first
+        if (!orderId && orderName) {
+          const order = await odoo.findSalesOrderByName(orderName);
+          if (!order) {
+            return {
+              success: false,
+              result: `Sales order with name "${orderName}" not found`,
+            };
+          }
+          orderId = order.id;
+          orderName = order.name;
+        }
+
+        if (!orderId) {
+          return {
+            success: false,
+            result: 'Either order_id or order_name must be provided',
+          };
+        }
+
+        const result = await odoo.cancelSalesOrder(orderId);
         return {
           success: result.success,
           result: result.message,
           data: result.data,
-          recordId: toolInput.order_id as number,
-          recordName: (result.data as { name?: string })?.name,
+          recordId: orderId,
+          recordName: orderName || (result.data as { name?: string })?.name,
           modelName: 'sale.order',
         };
       }
@@ -210,6 +253,41 @@ export async function executeOdooTool(
         };
       }
 
+      // ============ Generic Odoo Search ============
+      case 'search_odoo_records': {
+        const model = toolInput.model as string;
+        const domain = (toolInput.domain as unknown[]) || [];
+        const fields = (toolInput.fields as string[]) || ['id', 'name', 'display_name'];
+        const limit = Math.min((toolInput.limit as number) || 10, 50);
+        const order = toolInput.order as string | undefined;
+
+        const records = await odoo.searchRecords(model, domain, fields, { limit, order });
+        return {
+          success: true,
+          result: JSON.stringify(records, null, 2),
+          data: records,
+        };
+      }
+
+      case 'get_odoo_record': {
+        const model = toolInput.model as string;
+        const recordId = toolInput.record_id as number;
+        const fields = toolInput.fields as string[] | undefined;
+
+        const record = await odoo.getRecord(model, recordId, fields);
+        if (!record) {
+          return {
+            success: false,
+            result: `Record with ID ${recordId} not found in model ${model}`,
+          };
+        }
+        return {
+          success: true,
+          result: JSON.stringify(record, null, 2),
+          data: record,
+        };
+      }
+
       default:
         return {
           success: false,
@@ -238,8 +316,11 @@ export async function executeToolsForClaude(
     const result = await executeOdooTool(tool.name, tool.input);
 
     // Log write actions for audit trail
-    if (userId && WRITE_TOOLS.includes(tool.name)) {
-      await logOdooAction(userId, {
+    if (WRITE_TOOLS.includes(tool.name)) {
+      // Get the Odoo username for logging
+      const odooUsername = config.odoo.username;
+
+      await logOdooAction(userId || null, {
         toolName: tool.name,
         modelName: result.modelName,
         recordId: result.recordId,
@@ -248,6 +329,7 @@ export async function executeToolsForClaude(
         result: result.data as Record<string, unknown>,
         success: result.success,
         errorMessage: result.success ? undefined : result.result,
+        actorEmail: odooUsername, // Log the Odoo user who performed the action
       });
     }
 

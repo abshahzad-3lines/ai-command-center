@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOdooService } from '@/lib/services/odoo.service';
 import type { ApiResponse } from '@/types';
-import type { OdooInvoice, McpToolResult } from '@/types/odoo';
+import type { OdooInvoice, OdooToolResult } from '@/types/odoo';
 
 export async function GET(
   request: NextRequest,
@@ -64,7 +64,7 @@ interface InvoiceActionRequest {
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse<McpToolResult>>> {
+): Promise<NextResponse<ApiResponse<OdooToolResult>>> {
   try {
     const { id } = await params;
     const invoiceId = parseInt(id, 10);
@@ -94,7 +94,7 @@ export async function POST(
       );
     }
 
-    let result: McpToolResult;
+    let result: OdooToolResult;
 
     if (body.action === 'register_payment') {
       if (typeof body.amount !== 'number' || body.amount <= 0) {

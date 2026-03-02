@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOdooService } from '@/lib/services/odoo.service';
 import type { ApiResponse } from '@/types';
-import type { OdooSalesOrder, McpToolResult } from '@/types/odoo';
+import type { OdooSalesOrder, OdooToolResult } from '@/types/odoo';
 
 export async function GET(
   request: NextRequest,
@@ -61,7 +61,7 @@ interface SalesOrderActionRequest {
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse<McpToolResult>>> {
+): Promise<NextResponse<ApiResponse<OdooToolResult>>> {
   try {
     const { id } = await params;
     const orderId = parseInt(id, 10);
@@ -91,7 +91,7 @@ export async function POST(
       );
     }
 
-    let result: McpToolResult;
+    let result: OdooToolResult;
 
     if (body.action === 'confirm') {
       result = await odooService.confirmSalesOrder(orderId);

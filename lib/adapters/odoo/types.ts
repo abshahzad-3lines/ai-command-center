@@ -7,7 +7,7 @@ import type {
   OdooSalesOrderSummary,
   OdooInvoice,
   OdooInvoiceSummary,
-  McpToolResult,
+  OdooToolResult,
 } from '@/types/odoo';
 
 export interface OdooAdapterConfig {
@@ -27,23 +27,24 @@ export interface OdooAdapter {
   // RFPs / Purchase Requests
   fetchRfps(options?: { limit?: number; states?: string[]; offset?: number }): Promise<OdooRfp[]>;
   getRfp(id: number): Promise<OdooRfp | null>;
-  approveRfp(id: number): Promise<McpToolResult>;
-  rejectRfp(id: number, reason?: string): Promise<McpToolResult>;
+  approveRfp(id: number): Promise<OdooToolResult>;
+  rejectRfp(id: number, reason?: string): Promise<OdooToolResult>;
 
   // Sales Orders
   fetchSalesOrders(options?: { limit?: number; states?: string[]; offset?: number }): Promise<OdooSalesOrder[]>;
   getSalesOrder(id: number): Promise<OdooSalesOrder | null>;
-  confirmSalesOrder(id: number): Promise<McpToolResult>;
-  cancelSalesOrder(id: number): Promise<McpToolResult>;
+  findSalesOrderByName(name: string): Promise<OdooSalesOrder | null>;
+  confirmSalesOrder(id: number): Promise<OdooToolResult>;
+  cancelSalesOrder(id: number): Promise<OdooToolResult>;
 
   // Invoices
   fetchInvoices(options?: { limit?: number; states?: string[]; offset?: number }): Promise<OdooInvoice[]>;
   getInvoice(id: number): Promise<OdooInvoice | null>;
-  registerPayment(invoiceId: number, amount: number, date?: string): Promise<McpToolResult>;
-  sendReminder(invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice'): Promise<McpToolResult>;
+  registerPayment(invoiceId: number, amount: number, date?: string): Promise<OdooToolResult>;
+  sendReminder(invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice'): Promise<OdooToolResult>;
 
-  // MCP Tool Execution
-  executeTool(toolName: string, args: Record<string, unknown>): Promise<McpToolResult>;
+  // Tool Execution
+  executeTool(toolName: string, args: Record<string, unknown>): Promise<OdooToolResult>;
 
   // Low-level API
   searchRead<T = unknown>(

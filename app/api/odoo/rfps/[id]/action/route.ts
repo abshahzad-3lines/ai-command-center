@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOdooService } from '@/lib/services/odoo.service';
 import type { ApiResponse } from '@/types';
-import type { McpToolResult } from '@/types/odoo';
+import type { OdooToolResult } from '@/types/odoo';
 
 interface RfpActionRequest {
   action: 'approve' | 'reject';
@@ -13,7 +13,7 @@ interface RfpActionRequest {
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse<McpToolResult>>> {
+): Promise<NextResponse<ApiResponse<OdooToolResult>>> {
   try {
     const { id } = await params;
     const rfpId = parseInt(id, 10);
@@ -43,7 +43,7 @@ export async function POST(
       );
     }
 
-    let result: McpToolResult;
+    let result: OdooToolResult;
 
     if (body.action === 'approve') {
       result = await odooService.approveRfp(rfpId);

@@ -15,11 +15,11 @@ export interface ChatMessageInput {
 
 export class ChatService {
   private supabase: ReturnType<typeof import('@supabase/supabase-js').createClient<Database>>;
-  private userId: string;
+  private userId: string | null;
 
   constructor(
     supabaseClient: ReturnType<typeof import('@supabase/supabase-js').createClient<Database>>,
-    userId: string
+    userId: string | null
   ) {
     this.supabase = supabaseClient;
     this.userId = userId;
@@ -29,12 +29,19 @@ export class ChatService {
    * Get chat history
    */
   async getMessages(limit: number = 50, offset: number = 0): Promise<ChatMessage[]> {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('chat_messages')
       .select('*')
-      .eq('user_id', this.userId)
       .order('created_at', { ascending: true })
       .range(offset, offset + limit - 1);
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Failed to get chat messages:', error);
@@ -48,12 +55,19 @@ export class ChatService {
    * Get recent messages for context
    */
   async getRecentMessages(limit: number = 10): Promise<ChatMessage[]> {
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('chat_messages')
       .select('*')
-      .eq('user_id', this.userId)
       .order('created_at', { ascending: false })
       .limit(limit);
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Failed to get recent messages:', error);
@@ -115,11 +129,18 @@ export class ChatService {
    * Delete a message
    */
   async deleteMessage(messageId: string): Promise<boolean> {
-    const { error } = await this.supabase
+    let query = this.supabase
       .from('chat_messages')
       .delete()
-      .eq('id', messageId)
-      .eq('user_id', this.userId);
+      .eq('id', messageId);
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error('Failed to delete message:', error);
@@ -133,10 +154,17 @@ export class ChatService {
    * Clear all chat history
    */
   async clearHistory(): Promise<boolean> {
-    const { error } = await this.supabase
+    let query = this.supabase
       .from('chat_messages')
-      .delete()
-      .eq('user_id', this.userId);
+      .delete();
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error('Failed to clear chat history:', error);
@@ -150,10 +178,17 @@ export class ChatService {
    * Get message count
    */
   async getMessageCount(): Promise<number> {
-    const { count, error } = await this.supabase
+    let query = this.supabase
       .from('chat_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', this.userId);
+      .select('*', { count: 'exact', head: true });
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { count, error } = await query;
 
     if (error) {
       console.error('Failed to get message count:', error);
@@ -166,14 +201,21 @@ export class ChatService {
   /**
    * Search messages
    */
-  async searchMessages(query: string, limit: number = 20): Promise<ChatMessage[]> {
-    const { data, error } = await this.supabase
+  async searchMessages(queryStr: string, limit: number = 20): Promise<ChatMessage[]> {
+    let query = this.supabase
       .from('chat_messages')
       .select('*')
-      .eq('user_id', this.userId)
-      .ilike('content', `%${query}%`)
+      .ilike('content', `%${queryStr}%`)
       .order('created_at', { ascending: false })
       .limit(limit);
+
+    if (this.userId) {
+      query = query.eq('user_id', this.userId);
+    } else {
+      query = query.is('user_id', null);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Failed to search messages:', error);

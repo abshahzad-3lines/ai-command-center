@@ -1,20 +1,20 @@
-// API route: POST /api/odoo/mcp/execute - execute any MCP tool
+// API route: POST /api/odoo/tools/execute - execute any Odoo tool
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getOdooService } from '@/lib/services/odoo.service';
 import type { ApiResponse } from '@/types';
-import type { McpToolResult } from '@/types/odoo';
+import type { OdooToolResult } from '@/types/odoo';
 
-interface McpExecuteRequest {
+interface OdooToolExecuteRequest {
   tool: string;
   arguments: Record<string, unknown>;
 }
 
 export async function POST(
   request: NextRequest
-): Promise<NextResponse<ApiResponse<McpToolResult>>> {
+): Promise<NextResponse<ApiResponse<OdooToolResult>>> {
   try {
-    const body: McpExecuteRequest = await request.json();
+    const body: OdooToolExecuteRequest = await request.json();
 
     if (!body.tool || typeof body.tool !== 'string') {
       return NextResponse.json(
@@ -53,11 +53,11 @@ export async function POST(
       data: result,
     });
   } catch (error) {
-    console.error('Failed to execute MCP tool:', error);
+    console.error('Failed to execute Odoo tool:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to execute MCP tool',
+        error: error instanceof Error ? error.message : 'Failed to execute Odoo tool',
       },
       { status: 500 }
     );
