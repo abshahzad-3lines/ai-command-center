@@ -128,33 +128,26 @@ export async function POST(
       );
     }
 
-    // For now, always use null user_id since we don't have Supabase auth linked to Microsoft auth
-    // The Microsoft localAccountId is not a Supabase profile ID
-    // TODO: Link Microsoft accounts to Supabase profiles for proper user tracking
-
     let chatMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
 
-    // Create chat service with null user_id (anonymous mode)
+    // Create chat service (user_id is nullable for anonymous access)
     const chatService = new ChatService(supabase, null);
 
-    if (true) { // Always try to save messages now that user_id is nullable
+    // Save user message
+    await chatService.addMessage({
+      role: 'user',
+      content: message,
+    });
 
-      // Save user message
-      await chatService.addMessage({
-        role: 'user',
-        content: message,
-      });
+    // Get recent context
+    const recentMessages = await chatService.getRecentMessages(10);
+    const formattedMessages = ChatService.formatForOpenAI(recentMessages);
 
-      // Get recent context
-      const recentMessages = await chatService.getRecentMessages(10);
-      const formattedMessages = ChatService.formatForOpenAI(recentMessages);
-
-      // Convert messages to Claude format
-      chatMessages = formattedMessages.map((m) => ({
-        role: m.role as 'user' | 'assistant' | 'system',
-        content: m.content,
-      }));
-    }
+    // Convert messages to Claude format
+    chatMessages = formattedMessages.map((m) => ({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+    }));
 
     // Always ensure the current message is included
     if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1]?.content !== message) {

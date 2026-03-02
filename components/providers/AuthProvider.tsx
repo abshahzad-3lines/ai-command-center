@@ -25,6 +25,8 @@ interface AuthContextType {
   user: AccountInfo | null;
   /** Current access token for API calls */
   accessToken: string | null;
+  /** Supabase profile UUID linked to the Microsoft account */
+  profileId: string | null;
   /** Initiates the login flow via redirect */
   login: () => Promise<void>;
   /** Signs out the current user */
@@ -95,11 +97,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<AccountInfo | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
   // Ensure we only run on client
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  /**
+   * Ensures a Supabase profile exists for the Microsoft account.
+   * Creates one if it doesn't exist. Returns the profile UUID.
+   */
+  const ensureProfile = useCallback(async (account: AccountInfo): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/auth/ensure-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          microsoftId: account.localAccountId,
+          email: account.username,
+          name: account.name,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success && data.data?.id) {
+        setProfileId(data.data.id);
+        return data.data.id;
+      }
+    } catch (error) {
+      console.error('Failed to ensure profile:', error);
+    }
+    return null;
   }, []);
 
   useEffect(() => {
@@ -126,6 +156,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(response.account);
             setAccessToken(response.accessToken);
             setIsAuthenticated(true);
+            // Link Microsoft account to Supabase profile
+            if (response.account) {
+              ensureProfile(response.account);
+            }
             // Clear the hash if present
             if (window.location.hash) {
               window.history.replaceState(null, '', window.location.pathname);
@@ -146,6 +180,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('Found existing account:', accounts[0].username);
           setUser(accounts[0]);
           setIsAuthenticated(true);
+          // Link Microsoft account to Supabase profile
+          ensureProfile(accounts[0]);
 
           // Try to get token silently
           try {
@@ -174,7 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [isMounted]);
+  }, [isMounted, ensureProfile]);
 
   const login = useCallback(async () => {
     const instance = await initializeMsalInstance();
@@ -234,6 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setUser(null);
       setAccessToken(null);
+      setProfileId(null);
       setIsAuthenticated(false);
     }
   }, []);
@@ -272,6 +309,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         user,
         accessToken,
+        profileId,
         login,
         logout,
         getAccessToken,

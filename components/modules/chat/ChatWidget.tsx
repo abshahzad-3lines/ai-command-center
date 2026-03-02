@@ -5,9 +5,11 @@ import { Send, Bot, User, Sparkles, X, ChevronDown, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useChatStore, type Message } from '@/stores/chatStore';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 export function ChatWidget() {
   const { messages, isTyping, addMessage, setTyping, clearMessages } = useChatStore();
+  const { user } = useAuth();
   const [input, setInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -32,21 +34,52 @@ export function ChatWidget() {
     };
 
     addMessage(userMessage);
+    const messageContent = input.trim();
     setInput('');
     setTyping(true);
     setIsExpanded(true);
 
-    // Mock AI response with delay
-    setTimeout(() => {
-      const aiMessage: Message = {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user?.localAccountId || 'anonymous',
+        },
+        body: JSON.stringify({ message: messageContent }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data?.response) {
+        const aiMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.data.response,
+          timestamp: new Date(),
+        };
+        addMessage(aiMessage);
+      } else {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.error || "Sorry, I couldn't process your request. Please try again.",
+          timestamp: new Date(),
+        };
+        addMessage(errorMessage);
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "Hello! I'm your AI assistant. I'm here to help you manage your emails, schedule, and tasks. This is a placeholder response - AI integration coming soon!",
+        content: "Sorry, there was an error connecting to the AI. Please try again.",
         timestamp: new Date(),
       };
-      addMessage(aiMessage);
+      addMessage(errorMessage);
+    } finally {
       setTyping(false);
-    }, 1000);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

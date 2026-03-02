@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DashboardShell } from '@/components/layout';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { ChatWidget } from '@/components/modules/chat';
@@ -13,52 +13,128 @@ import {
   Calendar,
   Flag,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Database } from '@/types/database';
 
-interface Task {
-  id: string;
-  title: string;
-  completed: boolean;
-  priority: 'low' | 'medium' | 'high';
-  dueDate?: string;
+type Task = Database['public']['Tables']['tasks']['Row'];
+
+function formatDueDate(dueDate: string | null): string | null {
+  if (!dueDate) return null;
+  const date = new Date(dueDate);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const taskDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (taskDate.getTime() === today.getTime()) return 'Today';
+  if (taskDate.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  if (taskDate.getTime() === yesterday.getTime()) return 'Yesterday';
+  return date.toLocaleDateString();
 }
 
-const initialTasks: Task[] = [
-  { id: '1', title: 'Review project proposal', completed: false, priority: 'high', dueDate: 'Today' },
-  { id: '2', title: 'Send weekly report', completed: false, priority: 'medium', dueDate: 'Tomorrow' },
-  { id: '3', title: 'Schedule team meeting', completed: true, priority: 'low', dueDate: 'Yesterday' },
-  { id: '4', title: 'Update documentation', completed: false, priority: 'medium' },
-  { id: '5', title: 'Code review for PR #123', completed: false, priority: 'high', dueDate: 'Today' },
-];
-
 export default function TasksPage() {
-  const { user, logout } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const { user, profileId, logout } = useAuth();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [newTask, setNewTask] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const toggleTask = (id: string) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-user-id': profileId || user?.localAccountId || 'anonymous',
+  };
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks', { headers });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setTasks(data.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch tasks:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [profileId, user?.localAccountId]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const toggleTask = async (task: Task) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    // Optimistic update
     setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
+      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
     );
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? data.data : t))
+        );
+      }
+    } catch (error) {
+      console.error('Failed to toggle task:', error);
+      // Revert on failure
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? task : t))
+      );
+    }
   };
 
-  const deleteTask = (id: string) => {
-    setTasks((prev) => prev.filter((task) => task.id !== id));
+  const deleteTask = async (taskId: string) => {
+    const prev = tasks;
+    setTasks((t) => t.filter((task) => task.id !== taskId));
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setTasks(prev);
+      }
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      setTasks(prev);
+    }
   };
 
-  const addTask = () => {
-    if (!newTask.trim()) return;
-    const task: Task = {
-      id: Date.now().toString(),
-      title: newTask.trim(),
-      completed: false,
-      priority: 'medium',
-    };
-    setTasks((prev) => [task, ...prev]);
-    setNewTask('');
+  const addTask = async () => {
+    if (!newTask.trim() || isSaving) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: newTask.trim(),
+          priority: 'medium',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setTasks((prev) => [data.data, ...prev]);
+        setNewTask('');
+      }
+    } catch (error) {
+      console.error('Failed to create task:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -67,14 +143,14 @@ export default function TasksPage() {
     }
   };
 
-  const priorityColors = {
+  const priorityColors: Record<string, string> = {
     low: 'text-blue-500',
     medium: 'text-yellow-500',
     high: 'text-red-500',
   };
 
-  const completedCount = tasks.filter((t) => t.completed).length;
-  const pendingCount = tasks.filter((t) => !t.completed).length;
+  const completedCount = tasks.filter((t) => t.status === 'completed').length;
+  const pendingCount = tasks.filter((t) => t.status !== 'completed').length;
 
   return (
     <DashboardShell
@@ -112,15 +188,20 @@ export default function TasksPage() {
                   className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
                 />
               </div>
-              <Button onClick={addTask} disabled={!newTask.trim()}>
-                Add Task
+              <Button onClick={addTask} disabled={!newTask.trim() || isSaving}>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Task'}
               </Button>
             </div>
           </div>
 
           {/* Tasks List */}
           <div className="flex-1 overflow-y-auto">
-            {tasks.length === 0 ? (
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-full p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Loading tasks...</p>
+              </div>
+            ) : tasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full p-8">
                 <CheckSquare className="h-12 w-12 text-muted-foreground mb-4" />
                 <h2 className="text-xl font-semibold mb-2">No tasks yet</h2>
@@ -133,11 +214,11 @@ export default function TasksPage() {
                     key={task.id}
                     className={cn(
                       'flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors group',
-                      task.completed && 'opacity-60'
+                      task.status === 'completed' && 'opacity-60'
                     )}
                   >
-                    <button onClick={() => toggleTask(task.id)}>
-                      {task.completed ? (
+                    <button onClick={() => toggleTask(task)}>
+                      {task.status === 'completed' ? (
                         <CheckCircle2 className="h-5 w-5 text-primary" />
                       ) : (
                         <Circle className="h-5 w-5 text-muted-foreground" />
@@ -148,20 +229,20 @@ export default function TasksPage() {
                       <p
                         className={cn(
                           'font-medium',
-                          task.completed && 'line-through text-muted-foreground'
+                          task.status === 'completed' && 'line-through text-muted-foreground'
                         )}
                       >
                         {task.title}
                       </p>
-                      {task.dueDate && (
+                      {task.due_date && (
                         <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                           <Calendar className="h-3 w-3" />
-                          {task.dueDate}
+                          {formatDueDate(task.due_date)}
                         </div>
                       )}
                     </div>
 
-                    <Flag className={cn('h-4 w-4', priorityColors[task.priority])} />
+                    <Flag className={cn('h-4 w-4', priorityColors[task.priority || 'medium'])} />
 
                     <Button
                       variant="ghost"

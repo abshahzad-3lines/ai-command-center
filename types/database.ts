@@ -534,6 +534,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           id: string
+          microsoft_id: string | null
           timezone: string | null
           updated_at: string | null
         }
@@ -543,6 +544,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id: string
+          microsoft_id?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
@@ -552,6 +554,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          microsoft_id?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
