@@ -1,20 +1,24 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { DashboardShell } from '@/components/layout';
-import { EmailCard } from '@/components/modules/email';
-import { OdooAIPriorityCard } from '@/components/modules/odoo';
+import { EmailCard, EmailDetailDialog } from '@/components/modules/email';
+import { OdooAIPriorityCard, OdooActionConfirmDialog } from '@/components/modules/odoo';
 import { ChatWidget } from '@/components/modules/chat';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useEmails } from '@/hooks/useEmails';
 import { useOdooRfps } from '@/hooks/useOdooRfps';
 import { useOdooSales } from '@/hooks/useOdooSales';
 import { useOdooInvoices } from '@/hooks/useOdooInvoices';
+import { useOdooAIAnalysis } from '@/hooks/useOdooAIAnalysis';
 import { toast } from 'sonner';
 import { Loader2, Calendar, CheckSquare, ArrowRight, Building2 } from 'lucide-react';
 import Link from 'next/link';
+import type { Email } from '@/types';
 
 export default function DashboardPage() {
-  const { isAuthenticated, isLoading: authLoading, user, login, logout, accessToken } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user, login, logout, accessToken, getAccessToken, profileId } = useAuth();
+  const [taskStats, setTaskStats] = useState({ pending: 0, dueToday: 0 });
 
   const {
     emails,
@@ -23,36 +27,95 @@ export default function DashboardPage() {
     refetch,
     deleteEmail,
     executeAction,
-  } = useEmails({ accessToken, limit: 10 });
+    fetchEmailDetail,
+    sendEmail,
+    generateReply,
+    isSending,
+  } = useEmails({ accessToken, limit: 10, getAccessToken });
+
+  // Email detail dialog state
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+  // Odoo action confirmation dialog state
+  const [odooConfirm, setOdooConfirm] = useState<{
+    title: string;
+    description: string;
+    execute: () => Promise<void>;
+  } | null>(null);
 
   // Odoo data for AI Priority card
   const {
     rfps,
     refetch: refetchRfps,
+    approveRfp,
+    rejectRfp,
   } = useOdooRfps({ limit: 10 });
 
   const {
     orders,
     refetch: refetchOrders,
+    confirmOrder,
   } = useOdooSales({ limit: 10 });
 
   const {
     invoices,
     refetch: refetchInvoices,
+    registerPayment,
+    sendReminder,
   } = useOdooInvoices({ limit: 10 });
+
+  // AI analysis of Odoo data — generates priorities and predicted next actions
+  const {
+    rfps: aiRfps,
+    orders: aiOrders,
+    invoices: aiInvoices,
+    isAnalyzing,
+  } = useOdooAIAnalysis(rfps, orders, invoices);
+
+  // Fetch real task counts
+  useEffect(() => {
+    if (!profileId) return;
+    const fetchTaskStats = async () => {
+      try {
+        const response = await fetch('/api/tasks', {
+          headers: { 'x-user-id': profileId },
+        });
+        const data = await response.json();
+        if (data.success && data.data) {
+          const tasks = data.data;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          const pending = tasks.filter((t: { status: string }) => t.status === 'pending' || t.status === 'in_progress').length;
+          const dueToday = tasks.filter((t: { due_date: string | null; status: string }) =>
+            t.due_date &&
+            new Date(t.due_date) >= today &&
+            new Date(t.due_date) < tomorrow &&
+            t.status !== 'completed' &&
+            t.status !== 'cancelled'
+          ).length;
+
+          setTaskStats({ pending, dueToday });
+        }
+      } catch (error) {
+        console.error('Failed to fetch task stats:', error);
+      }
+    };
+    fetchTaskStats();
+  }, [profileId]);
 
   const handleRefresh = async () => {
     await refetch();
     toast.success('Emails refreshed');
   };
 
-  const handleAction = async (emailId: string, actionType: string) => {
-    try {
-      const result = await executeAction(emailId, actionType);
-      toast.success(result.message || `Action "${actionType}" executed`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to execute action');
-    }
+  const handleAction = async (emailId: string, _actionType: string) => {
+    // Open the email detail dialog so the user can review before taking action
+    await handleEmailClick(emailId);
   };
 
   const handleDelete = async (emailId: string) => {
@@ -61,6 +124,29 @@ export default function DashboardPage() {
       toast.success('Email deleted');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete email');
+    }
+  };
+
+  const handleEmailClick = async (emailId: string) => {
+    setIsDetailLoading(true);
+    setIsDetailOpen(true);
+    try {
+      const detail = await fetchEmailDetail(emailId);
+      setSelectedEmail(detail as Email);
+    } catch {
+      toast.error('Failed to load email');
+      setIsDetailOpen(false);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  const handleArchive = async (emailId: string) => {
+    try {
+      await executeAction(emailId, 'archive');
+      toast.success('Email archived');
+    } catch {
+      toast.error('Failed to archive email');
     }
   };
 
@@ -88,9 +174,93 @@ export default function DashboardPage() {
     toast.success('Odoo data refreshed');
   };
 
-  const handleOdooAction = (item: { type: string; id: number; actionLabel: string }) => {
-    // For now, show a toast - later this will trigger MCP actions
-    toast.info(`AI Action: ${item.actionLabel} for ${item.type} #${item.id}`);
+  const handleOdooAction = (item: { type: string; id: number; actionLabel: string; actionType?: string; amount?: number; name?: string; entity?: string }) => {
+    const actionType = item.actionType || item.actionLabel.toLowerCase().replace(/\s+/g, '_');
+    const recordName = item.name || `#${item.id}`;
+    const entity = item.entity ? ` from ${item.entity}` : '';
+
+    const buildConfirm = (title: string, description: string, execute: () => Promise<void>) => {
+      setOdooConfirm({ title, description, execute });
+    };
+
+    switch (actionType) {
+      case 'approve':
+      case 'review_&_approve':
+        buildConfirm(
+          'Approve Purchase Request',
+          `This will approve purchase request ${recordName}${entity} in Odoo. The order will move to "Purchase Order" status.`,
+          async () => {
+            await approveRfp(item.id);
+            toast.success(`RFP #${item.id} approved`);
+            await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+          }
+        );
+        break;
+      case 'reject':
+        buildConfirm(
+          'Reject Purchase Request',
+          `This will reject purchase request ${recordName}${entity} in Odoo. The order will be cancelled.`,
+          async () => {
+            await rejectRfp(item.id);
+            toast.success(`RFP #${item.id} rejected`);
+            await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+          }
+        );
+        break;
+      case 'confirm':
+      case 'confirm_order':
+        buildConfirm(
+          'Confirm Sales Order',
+          `This will confirm sales order ${recordName}${entity} in Odoo. The quotation will become a confirmed sales order.`,
+          async () => {
+            await confirmOrder(item.id);
+            toast.success(`Order #${item.id} confirmed`);
+            await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+          }
+        );
+        break;
+      case 'remind':
+      case 'send_reminder':
+        buildConfirm(
+          'Send Payment Reminder',
+          `This will send a friendly payment reminder for invoice ${recordName}${entity} via Odoo.`,
+          async () => {
+            await sendReminder(item.id, 'friendly');
+            toast.success(`Reminder sent for invoice #${item.id}`);
+            await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+          }
+        );
+        break;
+      case 'pay':
+      case 'register_payment':
+        if (item.amount) {
+          buildConfirm(
+            'Register Payment',
+            `This will register a payment of ${item.amount.toLocaleString()} for invoice ${recordName}${entity} in Odoo.`,
+            async () => {
+              await registerPayment(item.id, item.amount!);
+              toast.success(`Payment registered for invoice #${item.id}`);
+              await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+            }
+          );
+        } else {
+          toast.info('Navigate to Odoo page to register payment with specific amount');
+        }
+        break;
+      case 'follow_up':
+      case 'escalate':
+        toast.info(`Follow-up noted for ${item.type} #${item.id}. Use the Odoo page for detailed actions.`);
+        break;
+      default:
+        buildConfirm(
+          'Confirm Action',
+          `This will execute "${item.actionLabel}" on ${item.type} ${recordName}${entity}.`,
+          async () => {
+            toast.info(`Action "${item.actionLabel}" for ${item.type} #${item.id}`);
+            await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
+          }
+        );
+    }
   };
 
   // Show loading while auth initializes
@@ -152,7 +322,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-sm">Tasks</h3>
-                  <p className="text-xs text-muted-foreground">5 pending, 2 due today</p>
+                  <p className="text-xs text-muted-foreground">{taskStats.pending} pending{taskStats.dueToday > 0 ? `, ${taskStats.dueToday} due today` : ''}</p>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
               </div>
@@ -179,7 +349,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Main Content - Email & Odoo Side by Side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
           {/* Email Card */}
           <EmailCard
             emails={emails}
@@ -188,23 +358,49 @@ export default function DashboardPage() {
             onRefresh={handleRefresh}
             onAction={handleAction}
             onDelete={handleDelete}
+            onEmailClick={handleEmailClick}
             isConnected={isAuthenticated}
             onConnect={handleConnect}
           />
 
           {/* Odoo AI Priority Actions */}
           <OdooAIPriorityCard
-            rfps={rfps}
-            orders={orders}
-            invoices={invoices}
+            rfps={aiRfps}
+            orders={aiOrders}
+            invoices={aiInvoices}
             onRefresh={handleOdooRefresh}
             onAction={handleOdooAction}
+            isLoading={isAnalyzing}
           />
         </div>
 
         {/* Bottom padding for chat widget */}
         <div className="h-20" />
       </div>
+
+      {/* Email Detail Dialog */}
+      <EmailDetailDialog
+        open={isDetailOpen}
+        onOpenChange={setIsDetailOpen}
+        email={selectedEmail}
+        isLoading={isDetailLoading}
+        generateReply={generateReply}
+        sendEmail={sendEmail}
+        isSending={isSending}
+        onArchive={handleArchive}
+        onDelete={handleDelete}
+        accessToken={accessToken}
+        userId={user?.localAccountId || 'anonymous'}
+      />
+
+      {/* Odoo Action Confirmation Dialog */}
+      <OdooActionConfirmDialog
+        open={!!odooConfirm}
+        onOpenChange={(open) => { if (!open) setOdooConfirm(null); }}
+        title={odooConfirm?.title || ''}
+        description={odooConfirm?.description || ''}
+        onConfirm={odooConfirm?.execute || (async () => {})}
+      />
 
       {/* AI Chat Widget */}
       <ChatWidget />

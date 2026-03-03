@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { CreditCard, Bell, Sparkles, Loader2, Building2, AlertTriangle } from 'lucide-react';
+import { CreditCard, Bell, Sparkles, Loader2, Building2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,7 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, getOdooRecordUrl } from '@/lib/utils';
 import type { OdooInvoiceSummary } from '@/types/odoo';
 
 interface OdooInvoiceItemProps {
@@ -67,6 +67,7 @@ export function OdooInvoiceItem({
   const formattedDueDate = format(new Date(invoice.dueDate), 'MMM d, yyyy');
   const priority = invoice.aiPriority || 'medium';
   const suggestedAction = invoice.aiSuggestedAction;
+  const odooUrl = getOdooRecordUrl('invoice', invoice.id);
 
   const canRegisterPayment = invoice.paymentState !== 'paid' && invoice.amountDue > 0;
   const canSendReminder = invoice.paymentState !== 'paid' && invoice.state === 'posted';
@@ -201,6 +202,20 @@ export function OdooInvoiceItem({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Send Reminder</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Open in Odoo */}
+        {odooUrl && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a href={odooUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-purple-600 hover:bg-purple-100">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Open in Odoo</TooltipContent>
           </Tooltip>
         )}
       </div>

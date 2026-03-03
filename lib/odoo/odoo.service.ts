@@ -166,6 +166,32 @@ export class OdooService {
     return getOdooAdapter().sendReminder(invoiceId, type);
   }
 
+  // ============ Record Creation ============
+
+  async createSalesOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit?: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    return getOdooAdapter().createSalesOrder(partnerId, orderLines, note);
+  }
+
+  async createPurchaseOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    return getOdooAdapter().createPurchaseOrder(partnerId, orderLines, note);
+  }
+
+  async createInvoice(
+    partnerId: number,
+    invoiceLines: Array<{ name: string; product_id?: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    return getOdooAdapter().createInvoice(partnerId, invoiceLines, note);
+  }
+
   // ============ Generic Search ============
 
   /**

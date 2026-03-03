@@ -83,12 +83,15 @@ The Odoo integration connects to Odoo ERP via **JSON-RPC** (HTTP POST to `/jsonr
 
 ```
 User message → /api/chat (route.ts)
-  → ClaudeAdapter.chatWithTools() sends tools + system prompt to Anthropic
-  → Claude decides which tool to call
-  → tool-executor.ts dispatches to OdooService
-  → OdooService → OdooAdapterImpl → OdooJsonRpcClient
-  → HTTP POST to Odoo /jsonrpc endpoint
+  → ClaudeAdapter.chatWithTools() sends 23 tools + system prompt to Anthropic
+  → Claude decides which tool(s) to call
+  → tool-executor.ts routes by tool type:
+      ├─ Odoo tools    → OdooService → OdooAdapterImpl → OdooJsonRpcClient → Odoo /jsonrpc
+      ├─ Email tools   → OutlookAdapter → Microsoft Graph API
+      ├─ Calendar tools → OutlookCalendarAdapter → Microsoft Graph API
+      └─ Task tools    → TasksService → Supabase
   → Result returned to Claude → formatted response to user
+  → WRITE actions logged to odoo_action_logs (audit trail)
   → Loop up to 5 iterations for multi-step tasks
 ```
 
@@ -112,7 +115,11 @@ ai-command-center/
 │   │   ├── odoo.service.ts            # OdooService - high-level service (searchRecords, getRecord, etc.)
 │   │   └── tools.ts                   # AI tool definitions (15 tools with detailed descriptions)
 │   ├── ai/
-│   │   └── tool-executor.ts           # Maps AI tool calls → OdooService methods
+│   │   ├── tool-executor.ts           # Routes AI tool calls → Odoo/Email/Calendar/Task services
+│   │   └── tools/
+│   │       ├── email-tools.ts         # 3 email tool definitions
+│   │       ├── calendar-tools.ts      # 2 calendar tool definitions
+│   │       └── task-tools.ts          # 3 task tool definitions
 │   └── services/
 │       ├── odoo.service.ts            # Legacy service (dashboard API routes)
 │       ├── odoo-action-log.service.ts # Audit trail logging to Supabase
@@ -151,7 +158,9 @@ ai-command-center/
     ├── 20260301000001_add_actor_email_to_actions.sql
     ├── 20260301000002_fix_chat_rls.sql
     ├── 20260301000003_fix_chat_messages_nullable.sql
-    └── 20260302000001_rename_mcp_actions_table.sql
+    ├── 20260302000001_rename_mcp_actions_table.sql
+    ├── 20260302000002_fix_profiles_for_microsoft_auth.sql
+    └── 20260302000003_drop_profiles_auth_fk.sql
 ```
 
 ---
@@ -187,9 +196,9 @@ The integration uses **username/password authentication** via JSON-RPC:
 
 ## AI Tool Definitions
 
-The AI has access to **15 tools** defined in `lib/odoo/tools.ts`. Each tool has detailed descriptions optimized for smaller AI models.
+The AI has access to **23 tools total** — 15 Odoo tools in `lib/odoo/tools.ts`, plus 3 email tools (`lib/ai/tools/email-tools.ts`), 2 calendar tools (`lib/ai/tools/calendar-tools.ts`), and 3 task tools (`lib/ai/tools/task-tools.ts`). Each tool has detailed descriptions optimized for smaller AI models.
 
-### Domain-Specific Tools (13)
+### Odoo Domain-Specific Tools (13)
 
 | Tool | Description |
 |------|-------------|
@@ -207,7 +216,7 @@ The AI has access to **15 tools** defined in `lib/odoo/tools.ts`. Each tool has 
 | `register_invoice_payment` | Record a payment against an invoice |
 | `send_payment_reminder` | Send a payment reminder (friendly/formal/final_notice) |
 
-### Generic Tools (2)
+### Odoo Generic Tools (2)
 
 | Tool | Description |
 |------|-------------|
@@ -215,6 +224,19 @@ The AI has access to **15 tools** defined in `lib/odoo/tools.ts`. Each tool has 
 | `get_odoo_record` | Get a single record from any Odoo model by ID |
 
 The generic tools allow the AI to query models beyond purchase orders, sales orders, and invoices (e.g. `res.partner`, `product.product`, `hr.employee`).
+
+### Non-Odoo Tools (8)
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `search_emails` | Email | Search Outlook inbox |
+| `send_email` | Email | Send new email (to, subject, body, cc, bcc) |
+| `reply_to_email` | Email | Reply to existing email |
+| `search_calendar_events` | Calendar | Get events in a date range |
+| `create_calendar_event` | Calendar | Create a new calendar event |
+| `search_tasks` | Task | List tasks with status/priority filters |
+| `create_task` | Task | Create a new task |
+| `complete_task` | Task | Mark a task as completed |
 
 ---
 
@@ -268,8 +290,7 @@ All tables are in Supabase with RLS enabled.
 | `odoo_sales_cache` | Cached sales orders for dashboard |
 | `odoo_invoices_cache` | Cached invoices for dashboard |
 | `odoo_action_logs` | Audit trail of all Odoo actions performed |
-| `chat_conversations` | Chat conversation history |
-| `chat_messages` | Individual chat messages |
+| `chat_messages` | Chat message history (role, content, metadata) |
 
 ---
 
@@ -330,4 +351,4 @@ The tool definitions include trigger phrases and negative guidance. If a smaller
 
 ---
 
-*Last updated: March 2, 2026*
+*Last updated: March 2, 2026 (Session 3)*

@@ -1,7 +1,9 @@
 // API route: GET/POST /api/odoo/invoices/[id] - fetch or action on single Invoice
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import { getOdooService } from '@/lib/services/odoo.service';
+import { OdooCacheService } from '@/lib/services/odoo-cache.service';
 import type { ApiResponse } from '@/types';
 import type { OdooInvoice, OdooToolResult } from '@/types/odoo';
 
@@ -114,6 +116,14 @@ export async function POST(
         { success: false, error: result.error || 'Action failed' },
         { status: 400 }
       );
+    }
+
+    // Invalidate cache so next read fetches fresh data
+    const userId = request.headers.get('x-user-id');
+    if (userId) {
+      const supabase = await createClient();
+      const cacheService = new OdooCacheService(supabase, userId);
+      await cacheService.invalidateInvoice(invoiceId);
     }
 
     return NextResponse.json({

@@ -9,7 +9,7 @@ import { useAuth } from '@/components/providers/AuthProvider';
 
 export function ChatWidget() {
   const { messages, isTyping, addMessage, setTyping, clearMessages } = useChatStore();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const [input, setInput] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -46,7 +46,7 @@ export function ChatWidget() {
           'Content-Type': 'application/json',
           'x-user-id': user?.localAccountId || 'anonymous',
         },
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ message: messageContent, accessToken }),
       });
 
       const data = await response.json();
@@ -193,7 +193,7 @@ export function ChatWidget() {
           {!isExpanded && messages.length > 0 && (
             <button
               onClick={() => setIsExpanded(true)}
-              className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+              className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors cursor-pointer"
             >
               <Bot className="h-3 w-3" />
               {messages.length} messages

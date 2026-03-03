@@ -7,6 +7,10 @@
 import { getOdooService } from '@/lib/odoo';
 import { logOdooAction } from '@/lib/services/odoo-action-log.service';
 import { config } from '@/config';
+import { OutlookAdapter } from '@/lib/adapters/email/outlook.adapter';
+import { OutlookCalendarAdapter } from '@/lib/adapters/calendar/outlook.adapter';
+import { TasksService } from '@/lib/services/tasks.service';
+import { createClient } from '@/lib/supabase/server';
 import type { ToolResultBlock } from '@/lib/adapters/ai/claude.adapter';
 import type {
   OdooRfp,
@@ -34,6 +38,9 @@ const WRITE_TOOLS = [
   'cancel_sales_order',
   'register_invoice_payment',
   'send_payment_reminder',
+  'create_sales_order',
+  'create_purchase_order',
+  'create_invoice',
 ];
 
 /**
@@ -253,6 +260,55 @@ export async function executeOdooTool(
         };
       }
 
+      // ============ Create Records ============
+      case 'create_sales_order': {
+        const result = await odoo.createSalesOrder(
+          toolInput.partner_id as number,
+          toolInput.order_lines as Array<{ product_id: number; quantity: number; price_unit?: number }>,
+          toolInput.note as string | undefined
+        );
+        return {
+          success: result.success,
+          result: result.message,
+          data: result.data,
+          recordId: (result.data as { id?: number })?.id,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'sale.order',
+        };
+      }
+
+      case 'create_purchase_order': {
+        const result = await odoo.createPurchaseOrder(
+          toolInput.partner_id as number,
+          toolInput.order_lines as Array<{ product_id: number; quantity: number; price_unit: number }>,
+          toolInput.note as string | undefined
+        );
+        return {
+          success: result.success,
+          result: result.message,
+          data: result.data,
+          recordId: (result.data as { id?: number })?.id,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'purchase.order',
+        };
+      }
+
+      case 'create_invoice': {
+        const result = await odoo.createInvoice(
+          toolInput.partner_id as number,
+          toolInput.invoice_lines as Array<{ name: string; product_id?: number; quantity: number; price_unit: number }>,
+          toolInput.note as string | undefined
+        );
+        return {
+          success: result.success,
+          result: result.message,
+          data: result.data,
+          recordId: (result.data as { id?: number })?.id,
+          recordName: (result.data as { name?: string })?.name,
+          modelName: 'account.move',
+        };
+      }
+
       // ============ Generic Odoo Search ============
       case 'search_odoo_records': {
         const model = toolInput.model as string;
@@ -303,17 +359,241 @@ export async function executeOdooTool(
 }
 
 /**
+ * Execute an email tool and return the result
+ */
+async function executeEmailTool(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  accessToken?: string
+): Promise<ToolExecutionResult> {
+  if (!accessToken) {
+    return { success: false, result: 'No access token provided. User must be authenticated with Outlook.' };
+  }
+
+  const adapter = new OutlookAdapter({ accessToken });
+
+  try {
+    switch (toolName) {
+      case 'search_emails': {
+        const limit = (toolInput.limit as number) || 10;
+        const emails = await adapter.fetchEmails(limit);
+        const formatted = emails.map((e) => ({
+          id: e.id,
+          subject: e.subject,
+          from: `${e.from.name} <${e.from.email}>`,
+          preview: e.preview.slice(0, 200),
+          receivedAt: e.receivedAt,
+          isRead: e.isRead,
+        }));
+        return { success: true, result: JSON.stringify(formatted, null, 2) };
+      }
+
+      case 'send_email': {
+        const sent = await adapter.sendEmail(
+          toolInput.to as string[],
+          toolInput.subject as string,
+          toolInput.body as string,
+          toolInput.cc as string[] | undefined,
+          toolInput.bcc as string[] | undefined
+        );
+        return {
+          success: sent,
+          result: sent
+            ? `Email sent successfully to ${(toolInput.to as string[]).join(', ')}`
+            : 'Failed to send email',
+        };
+      }
+
+      case 'reply_to_email': {
+        const replied = await adapter.sendReply(
+          toolInput.email_id as string,
+          toolInput.body as string
+        );
+        return {
+          success: replied,
+          result: replied ? 'Reply sent successfully' : 'Failed to send reply',
+        };
+      }
+
+      default:
+        return { success: false, result: `Unknown email tool: ${toolName}` };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      result: `Error executing ${toolName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+/**
+ * Execute a calendar tool and return the result
+ */
+async function executeCalendarTool(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  accessToken?: string
+): Promise<ToolExecutionResult> {
+  if (!accessToken) {
+    return { success: false, result: 'No access token provided. User must be authenticated with Outlook.' };
+  }
+
+  const adapter = new OutlookCalendarAdapter({ accessToken });
+
+  try {
+    switch (toolName) {
+      case 'search_calendar_events': {
+        const now = new Date();
+        const startDate = toolInput.start_date
+          ? new Date(toolInput.start_date as string)
+          : now;
+        const endDate = toolInput.end_date
+          ? new Date(toolInput.end_date as string)
+          : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+        const events = await adapter.fetchEvents(startDate, endDate);
+        const formatted = events.map((e) => ({
+          id: e.id,
+          subject: e.subject,
+          start: e.start,
+          end: e.end,
+          location: e.location,
+          isAllDay: e.isAllDay,
+          isOnline: e.isOnline,
+          attendees: e.attendees?.length || 0,
+        }));
+        return { success: true, result: JSON.stringify(formatted, null, 2) };
+      }
+
+      case 'create_calendar_event': {
+        const event = await adapter.createEvent({
+          subject: toolInput.subject as string,
+          start: new Date(toolInput.start as string),
+          end: new Date(toolInput.end as string),
+          location: toolInput.location as string | undefined,
+          isAllDay: (toolInput.is_all_day as boolean) || false,
+          isOnline: false,
+          importance: 'normal',
+          showAs: 'busy',
+        });
+        return {
+          success: true,
+          result: `Event "${event.subject}" created for ${new Date(event.start).toLocaleString()}`,
+        };
+      }
+
+      default:
+        return { success: false, result: `Unknown calendar tool: ${toolName}` };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      result: `Error executing ${toolName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+/**
+ * Execute a task tool and return the result
+ */
+async function executeTaskTool(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  userId?: string
+): Promise<ToolExecutionResult> {
+  if (!userId) {
+    return { success: false, result: 'No user ID provided. User must be authenticated.' };
+  }
+
+  try {
+    const supabase = await createClient();
+    const tasksService = new TasksService(supabase, userId);
+
+    switch (toolName) {
+      case 'search_tasks': {
+        const tasks = await tasksService.getTasks({
+          status: toolInput.status as 'pending' | 'in_progress' | 'completed' | 'cancelled' | undefined,
+          priority: toolInput.priority as 'low' | 'medium' | 'high' | undefined,
+          limit: (toolInput.limit as number) || 20,
+        });
+        const formatted = tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          status: t.status,
+          priority: t.priority,
+          due_date: t.due_date,
+          tags: t.tags,
+        }));
+        return { success: true, result: JSON.stringify(formatted, null, 2) };
+      }
+
+      case 'create_task': {
+        const task = await tasksService.createTask({
+          title: toolInput.title as string,
+          description: toolInput.description as string | undefined,
+          priority: (toolInput.priority as 'low' | 'medium' | 'high') || 'medium',
+          dueDate: toolInput.due_date ? new Date(toolInput.due_date as string) : undefined,
+          tags: toolInput.tags as string[] | undefined,
+        });
+        return {
+          success: !!task,
+          result: task
+            ? `Task "${task.title}" created successfully (ID: ${task.id})`
+            : 'Failed to create task',
+        };
+      }
+
+      case 'complete_task': {
+        const task = await tasksService.completeTask(toolInput.task_id as string);
+        return {
+          success: !!task,
+          result: task
+            ? `Task "${task.title}" marked as completed`
+            : 'Failed to complete task. Task may not exist or you may not have permission.',
+        };
+      }
+
+      default:
+        return { success: false, result: `Unknown task tool: ${toolName}` };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      result: `Error executing ${toolName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+// Tool name prefixes for routing
+const EMAIL_TOOLS = ['search_emails', 'send_email', 'reply_to_email'];
+const CALENDAR_TOOLS = ['search_calendar_events', 'create_calendar_event'];
+const TASK_TOOLS = ['search_tasks', 'create_task', 'complete_task'];
+
+/**
  * Execute multiple tools and return results formatted for Claude
  * Logs write actions for audit trail
  */
 export async function executeToolsForClaude(
   toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>,
-  userId?: string
+  userId?: string,
+  accessToken?: string
 ): Promise<ToolResultBlock[]> {
   const results: ToolResultBlock[] = [];
 
   for (const tool of toolCalls) {
-    const result = await executeOdooTool(tool.name, tool.input);
+    let result: ToolExecutionResult;
+
+    // Route tool calls by type
+    if (EMAIL_TOOLS.includes(tool.name)) {
+      result = await executeEmailTool(tool.name, tool.input, accessToken);
+    } else if (CALENDAR_TOOLS.includes(tool.name)) {
+      result = await executeCalendarTool(tool.name, tool.input, accessToken);
+    } else if (TASK_TOOLS.includes(tool.name)) {
+      result = await executeTaskTool(tool.name, tool.input, userId);
+    } else {
+      result = await executeOdooTool(tool.name, tool.input);
+    }
 
     // Log write actions for audit trail
     if (WRITE_TOOLS.includes(tool.name)) {

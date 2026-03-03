@@ -5,6 +5,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/components/providers/AuthProvider';
 import type { ApiResponse } from '@/types';
 import type { OdooInvoiceSummary, OdooInvoice, OdooToolResult } from '@/types/odoo';
 
@@ -18,8 +19,11 @@ interface UseOdooInvoicesOptions {
   enabled?: boolean;
 }
 
-async function fetchInvoices(limit: number): Promise<OdooInvoiceSummary[]> {
-  const response = await fetch(`/api/odoo/invoices?limit=${limit}`);
+async function fetchInvoices(limit: number, profileId: string, refresh = false): Promise<OdooInvoiceSummary[]> {
+  const url = `/api/odoo/invoices?limit=${limit}${refresh ? '&refresh=true' : ''}`;
+  const response = await fetch(url, {
+    headers: { 'x-user-id': profileId },
+  });
   const data: ApiResponse<OdooInvoiceSummary[]> = await response.json();
 
   if (!data.success || !data.data) {
@@ -34,8 +38,10 @@ async function fetchInvoices(limit: number): Promise<OdooInvoiceSummary[]> {
   }));
 }
 
-async function fetchInvoice(id: number): Promise<OdooInvoice> {
-  const response = await fetch(`/api/odoo/invoices/${id}`);
+async function fetchInvoice(id: number, profileId: string): Promise<OdooInvoice> {
+  const response = await fetch(`/api/odoo/invoices/${id}`, {
+    headers: { 'x-user-id': profileId },
+  });
   const data: ApiResponse<OdooInvoice> = await response.json();
 
   if (!data.success || !data.data) {
@@ -48,12 +54,14 @@ async function fetchInvoice(id: number): Promise<OdooInvoice> {
 async function registerPayment(
   invoiceId: number,
   amount: number,
+  profileId: string,
   date?: string
 ): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/invoices/${invoiceId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-user-id': profileId,
     },
     body: JSON.stringify({ action: 'register_payment', amount, date }),
   });
@@ -69,12 +77,14 @@ async function registerPayment(
 
 async function sendReminder(
   invoiceId: number,
-  reminderType: 'friendly' | 'formal' | 'final_notice'
+  reminderType: 'friendly' | 'formal' | 'final_notice',
+  profileId: string
 ): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/invoices/${invoiceId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-user-id': profileId,
     },
     body: JSON.stringify({ action: 'send_reminder', reminderType }),
   });
@@ -96,29 +106,31 @@ async function sendReminder(
  * - Tracks overdue invoices with days overdue calculation
  * - Provides payment registration and reminder mutation functions
  * - Caches data for 5 minutes
+ * - `forceRefresh` bypasses server cache and fetches fresh from Odoo
  *
  * @param options - Configuration options
  * @returns Object containing invoices data and mutation functions
  *
  * @example
  * ```tsx
- * const { invoices, registerPayment, sendReminder } = useOdooInvoices({ limit: 20 });
+ * const { invoices, registerPayment, sendReminder, forceRefresh } = useOdooInvoices({ limit: 20 });
  * ```
  */
 export function useOdooInvoices({ limit = 10, enabled = true }: UseOdooInvoicesOptions = {}) {
   const queryClient = useQueryClient();
+  const { profileId } = useAuth();
 
   const invoicesQuery = useQuery({
     queryKey: ['odoo-invoices', limit],
-    queryFn: () => fetchInvoices(limit),
-    enabled,
+    queryFn: () => fetchInvoices(limit, profileId!),
+    enabled: enabled && !!profileId,
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 2, // Retry on failure
   });
 
   const paymentMutation = useMutation({
     mutationFn: ({ invoiceId, amount, date }: { invoiceId: number; amount: number; date?: string }) =>
-      registerPayment(invoiceId, amount, date),
+      registerPayment(invoiceId, amount, profileId!, date),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odoo-invoices'] });
     },
@@ -131,17 +143,25 @@ export function useOdooInvoices({ limit = 10, enabled = true }: UseOdooInvoicesO
     }: {
       invoiceId: number;
       reminderType: 'friendly' | 'formal' | 'final_notice';
-    }) => sendReminder(invoiceId, reminderType),
+    }) => sendReminder(invoiceId, reminderType, profileId!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odoo-invoices'] });
     },
   });
+
+  // Force refresh bypasses server cache and fetches fresh from Odoo + AI
+  const forceRefresh = async () => {
+    if (!profileId) return;
+    const fresh = await fetchInvoices(limit, profileId, true);
+    queryClient.setQueryData(['odoo-invoices', limit], fresh);
+  };
 
   return {
     invoices: invoicesQuery.data || [],
     isLoading: invoicesQuery.isLoading,
     error: invoicesQuery.error?.message || null,
     refetch: invoicesQuery.refetch,
+    forceRefresh,
     registerPayment: (invoiceId: number, amount: number, date?: string) =>
       paymentMutation.mutateAsync({ invoiceId, amount, date }),
     sendReminder: (invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice') =>
@@ -163,10 +183,12 @@ export function useOdooInvoices({ limit = 10, enabled = true }: UseOdooInvoicesO
  * ```
  */
 export function useOdooInvoice(id: number | null) {
+  const { profileId } = useAuth();
+
   const invoiceQuery = useQuery({
     queryKey: ['odoo-invoice', id],
-    queryFn: () => fetchInvoice(id!),
-    enabled: id !== null,
+    queryFn: () => fetchInvoice(id!, profileId!),
+    enabled: id !== null && !!profileId,
     staleTime: 1000 * 60 * 5,
   });
 

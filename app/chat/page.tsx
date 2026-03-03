@@ -9,7 +9,7 @@ import { useChatStore, type Message } from '@/stores/chatStore';
 import { cn } from '@/lib/utils';
 
 export default function ChatPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, accessToken } = useAuth();
   const { messages, isTyping, addMessage, setTyping, clearMessages } = useChatStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -50,7 +50,7 @@ export default function ChatPage() {
           'Content-Type': 'application/json',
           'x-user-id': user?.localAccountId || 'anonymous',
         },
-        body: JSON.stringify({ message: messageContent }),
+        body: JSON.stringify({ message: messageContent, accessToken }),
       });
 
       const data = await response.json();

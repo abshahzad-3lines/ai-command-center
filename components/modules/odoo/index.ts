@@ -5,3 +5,4 @@ export { OdooSalesItem } from './OdooSalesItem';
 export { OdooInvoicesCard } from './OdooInvoicesCard';
 export { OdooInvoiceItem } from './OdooInvoiceItem';
 export { OdooAIPriorityCard } from './OdooAIPriorityCard';
+export { OdooActionConfirmDialog } from './OdooActionConfirmDialog';

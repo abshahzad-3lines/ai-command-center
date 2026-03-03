@@ -25,8 +25,8 @@ interface OdooInvoicesCardProps {
   isLoading?: boolean;
   error?: string | null;
   onRefresh: () => void;
-  onRegisterPayment: (id: number, amount: number) => Promise<void>;
-  onSendReminder: (id: number, type: 'friendly' | 'formal' | 'final_notice') => Promise<void>;
+  onRegisterPayment: (id: number, amount: number) => void | Promise<void>;
+  onSendReminder: (id: number, type: 'friendly' | 'formal' | 'final_notice') => void | Promise<void>;
   isConfigured?: boolean;
   onConfigure?: () => void;
 }
@@ -137,7 +137,7 @@ export function OdooInvoicesCard({
                 <button
                   onClick={() => setSortBy('time')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'time'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -149,7 +149,7 @@ export function OdooInvoicesCard({
                 <button
                   onClick={() => setSortBy('priority')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'priority'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -162,7 +162,7 @@ export function OdooInvoicesCard({
                   <button
                     onClick={() => setSortBy('overdue')}
                     className={cn(
-                      'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                      'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                       sortBy === 'overdue'
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground'

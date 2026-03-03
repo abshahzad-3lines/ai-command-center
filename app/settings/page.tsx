@@ -42,7 +42,7 @@ interface SettingsSection {
 }
 
 export default function SettingsPage() {
-  const { user, logout, isAuthenticated, login } = useAuth();
+  const { user, logout, isAuthenticated, login, profileId } = useAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [notifications, setNotifications] = useState({
@@ -56,6 +56,29 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
+
+  // Load settings from DB
+  useEffect(() => {
+    if (!profileId) return;
+    const loadSettings = async () => {
+      try {
+        const response = await fetch('/api/settings', {
+          headers: { 'x-user-id': profileId },
+        });
+        const data = await response.json();
+        if (data.success && data.data) {
+          setNotifications({
+            email: data.data.notifications_email ?? true,
+            push: data.data.notifications_push ?? false,
+            desktop: data.data.notifications_desktop ?? true,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    };
+    loadSettings();
+  }, [profileId]);
 
   const handleSignOut = async () => {
     await logout();
@@ -74,6 +97,20 @@ export default function SettingsPage() {
     setNotifications((prev) => {
       const newState = { ...prev, [key]: !prev[key] };
       toast.success(`${key.charAt(0).toUpperCase() + key.slice(1)} notifications ${newState[key] ? 'enabled' : 'disabled'}`);
+
+      // Persist to DB
+      if (profileId) {
+        const dbKey = `notifications_${key}` as const;
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': profileId,
+          },
+          body: JSON.stringify({ [dbKey]: newState[key] }),
+        }).catch((err) => console.error('Failed to persist notification setting:', err));
+      }
+
       return newState;
     });
   };
@@ -110,10 +147,10 @@ export default function SettingsPage() {
         {
           icon: Calendar,
           label: 'Calendar',
-          description: 'Connect your calendar',
-          badge: undefined,
-          action: () => toast.info('Calendar integration coming soon'),
-          actionLabel: 'Connect',
+          description: isAuthenticated ? 'Connected to Outlook' : 'Connect your calendar',
+          badge: isAuthenticated ? 'Connected' : undefined,
+          action: isAuthenticated ? undefined : handleConnect,
+          actionLabel: isAuthenticated ? undefined : 'Connect',
         },
       ],
     },
@@ -195,7 +232,7 @@ export default function SettingsPage() {
                     toast.success(`Theme set to ${label}`);
                   }}
                   className={cn(
-                    'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors',
+                    'flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors cursor-pointer',
                     theme === value
                       ? 'border-primary bg-primary/5'
                       : 'hover:bg-muted'
@@ -232,7 +269,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => toggleNotification(key as keyof typeof notifications)}
                   className={cn(
-                    'relative h-6 w-11 rounded-full transition-colors',
+                    'relative h-6 w-11 rounded-full transition-colors cursor-pointer',
                     notifications[key as keyof typeof notifications]
                       ? 'bg-primary'
                       : 'bg-muted'
@@ -293,9 +330,9 @@ export default function SettingsPage() {
                 }
 
                 return (
-                  <button key={item.label} onClick={item.action} className="block w-full">
+                  <div key={item.label} className="block w-full cursor-pointer" onClick={item.action} role="button" tabIndex={0}>
                     {content}
-                  </button>
+                  </div>
                 );
               })}
             </div>

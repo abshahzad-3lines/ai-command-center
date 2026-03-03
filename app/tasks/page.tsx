@@ -14,6 +14,7 @@ import {
   Flag,
   Trash2,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Database } from '@/types/database';
@@ -117,12 +118,31 @@ export default function TasksPage() {
     if (!newTask.trim() || isSaving) return;
     setIsSaving(true);
     try {
+      // Ask AI to determine priority from the task title
+      let priority = 'medium';
+      let dueDate: string | undefined;
+      try {
+        const aiRes = await fetch('/api/tasks/ai-priority', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTask.trim() }),
+        });
+        const aiData = await aiRes.json();
+        if (aiData.success && aiData.data) {
+          priority = aiData.data.priority;
+          dueDate = aiData.data.suggestedDueDate || undefined;
+        }
+      } catch {
+        // Fallback to medium on AI failure
+      }
+
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers,
         body: JSON.stringify({
           title: newTask.trim(),
-          priority: 'medium',
+          priority,
+          ...(dueDate && { dueDate }),
         }),
       });
       const data = await res.json();
@@ -189,7 +209,14 @@ export default function TasksPage() {
                 />
               </div>
               <Button onClick={addTask} disabled={!newTask.trim() || isSaving}>
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Task'}
+                {isSaving ? (
+                  <>
+                    <Sparkles className="h-4 w-4 animate-pulse mr-1" />
+                    AI...
+                  </>
+                ) : (
+                  'Add Task'
+                )}
               </Button>
             </div>
           </div>
@@ -217,7 +244,7 @@ export default function TasksPage() {
                       task.status === 'completed' && 'opacity-60'
                     )}
                   >
-                    <button onClick={() => toggleTask(task)}>
+                    <button className="cursor-pointer" onClick={() => toggleTask(task)}>
                       {task.status === 'completed' ? (
                         <CheckCircle2 className="h-5 w-5 text-primary" />
                       ) : (

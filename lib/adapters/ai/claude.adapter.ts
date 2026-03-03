@@ -358,6 +358,107 @@ Respond naturally to the user based on the tool results.`;
   }
 
   /**
+   * Multi-round tool calling loop
+   * Properly maintains full Anthropic message history across tool rounds.
+   * Uses a callback to execute tools, avoiding circular dependencies.
+   */
+  async processToolLoop(
+    messages: ChatMessage[],
+    tools: ClaudeTool[],
+    systemPrompt: string,
+    executeTools: (toolCalls: ToolUseBlock[]) => Promise<ToolResultBlock[]>,
+    maxIterations: number = 5
+  ): Promise<string> {
+    // Build initial Anthropic messages from chat history
+    const anthropicMessages: Anthropic.MessageParam[] = messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
+
+    const anthropicTools = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
+
+    let iterations = 0;
+
+    while (iterations < maxIterations) {
+      iterations++;
+
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: anthropicMessages,
+        tools: anthropicTools,
+      });
+
+      // Extract text and check for tool calls
+      let textContent = '';
+      const toolUseBlocks: ToolUseBlock[] = [];
+
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          textContent += block.text;
+        } else if (block.type === 'tool_use') {
+          toolUseBlocks.push({
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input: block.input as Record<string, unknown>,
+          });
+        }
+      }
+
+      // If Claude is done (no tool calls), return the text
+      if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+        return textContent || "I processed your request but couldn't generate a proper response.";
+      }
+
+      // Add Claude's response (including tool_use blocks) to message history
+      // Filter to only text and tool_use blocks (skip thinking, etc.)
+      const contentBlocks: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = [];
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          contentBlocks.push({ type: 'text', text: block.text });
+        } else if (block.type === 'tool_use') {
+          contentBlocks.push({
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input: block.input as Record<string, unknown>,
+          });
+        }
+      }
+      anthropicMessages.push({
+        role: 'assistant',
+        content: contentBlocks,
+      });
+
+      // Execute the tools
+      const toolResults = await executeTools(toolUseBlocks);
+
+      // Add tool results to message history
+      anthropicMessages.push({
+        role: 'user',
+        content: toolResults.map((tr) => ({
+          type: 'tool_result' as const,
+          tool_use_id: tr.tool_use_id,
+          content: tr.content,
+          is_error: tr.is_error,
+        })),
+      });
+
+      // Loop continues — Claude will see full history including all tool interactions
+    }
+
+    return "I processed your request but couldn't generate a proper response. Please try again.";
+  }
+
+  /**
    * Build the analysis prompt for an email
    */
   private buildAnalysisPrompt(email: Email): string {

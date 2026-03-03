@@ -5,6 +5,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/components/providers/AuthProvider';
 import type { ApiResponse } from '@/types';
 import type { OdooRfpSummary, OdooRfp, OdooToolResult } from '@/types/odoo';
 
@@ -18,8 +19,11 @@ interface UseOdooRfpsOptions {
   enabled?: boolean;
 }
 
-async function fetchRfps(limit: number): Promise<OdooRfpSummary[]> {
-  const response = await fetch(`/api/odoo/rfps?limit=${limit}`);
+async function fetchRfps(limit: number, profileId: string, refresh = false): Promise<OdooRfpSummary[]> {
+  const url = `/api/odoo/rfps?limit=${limit}${refresh ? '&refresh=true' : ''}`;
+  const response = await fetch(url, {
+    headers: { 'x-user-id': profileId },
+  });
   const data: ApiResponse<OdooRfpSummary[]> = await response.json();
 
   if (!data.success || !data.data) {
@@ -33,8 +37,10 @@ async function fetchRfps(limit: number): Promise<OdooRfpSummary[]> {
   }));
 }
 
-async function fetchRfp(id: number): Promise<OdooRfp> {
-  const response = await fetch(`/api/odoo/rfps/${id}`);
+async function fetchRfp(id: number, profileId: string): Promise<OdooRfp> {
+  const response = await fetch(`/api/odoo/rfps/${id}`, {
+    headers: { 'x-user-id': profileId },
+  });
   const data: ApiResponse<OdooRfp> = await response.json();
 
   if (!data.success || !data.data) {
@@ -47,12 +53,14 @@ async function fetchRfp(id: number): Promise<OdooRfp> {
 async function executeRfpAction(
   id: number,
   action: 'approve' | 'reject',
+  profileId: string,
   reason?: string
 ): Promise<OdooToolResult> {
   const response = await fetch(`/api/odoo/rfps/${id}/action`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-user-id': profileId,
     },
     body: JSON.stringify({ action, reason }),
   });
@@ -73,28 +81,30 @@ async function executeRfpAction(
  * - Fetches RFP list with AI-generated summaries and priority
  * - Provides approve/reject mutation functions
  * - Caches data for 5 minutes
+ * - `forceRefresh` bypasses server cache and fetches fresh from Odoo
  *
  * @param options - Configuration options
  * @returns Object containing RFPs data and mutation functions
  *
  * @example
  * ```tsx
- * const { rfps, approveRfp, rejectRfp, isApproving } = useOdooRfps({ limit: 20 });
+ * const { rfps, approveRfp, rejectRfp, forceRefresh } = useOdooRfps({ limit: 20 });
  * ```
  */
 export function useOdooRfps({ limit = 10, enabled = true }: UseOdooRfpsOptions = {}) {
   const queryClient = useQueryClient();
+  const { profileId } = useAuth();
 
   const rfpsQuery = useQuery({
     queryKey: ['odoo-rfps', limit],
-    queryFn: () => fetchRfps(limit),
-    enabled,
+    queryFn: () => fetchRfps(limit, profileId!),
+    enabled: enabled && !!profileId,
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 2, // Retry on failure
   });
 
   const approveMutation = useMutation({
-    mutationFn: (id: number) => executeRfpAction(id, 'approve'),
+    mutationFn: (id: number) => executeRfpAction(id, 'approve', profileId!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odoo-rfps'] });
     },
@@ -102,17 +112,25 @@ export function useOdooRfps({ limit = 10, enabled = true }: UseOdooRfpsOptions =
 
   const rejectMutation = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
-      executeRfpAction(id, 'reject', reason),
+      executeRfpAction(id, 'reject', profileId!, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['odoo-rfps'] });
     },
   });
+
+  // Force refresh bypasses server cache and fetches fresh from Odoo + AI
+  const forceRefresh = async () => {
+    if (!profileId) return;
+    const fresh = await fetchRfps(limit, profileId, true);
+    queryClient.setQueryData(['odoo-rfps', limit], fresh);
+  };
 
   return {
     rfps: rfpsQuery.data || [],
     isLoading: rfpsQuery.isLoading,
     error: rfpsQuery.error?.message || null,
     refetch: rfpsQuery.refetch,
+    forceRefresh,
     approveRfp: approveMutation.mutateAsync,
     rejectRfp: (id: number, reason?: string) =>
       rejectMutation.mutateAsync({ id, reason }),
@@ -133,10 +151,12 @@ export function useOdooRfps({ limit = 10, enabled = true }: UseOdooRfpsOptions =
  * ```
  */
 export function useOdooRfp(id: number | null) {
+  const { profileId } = useAuth();
+
   const rfpQuery = useQuery({
     queryKey: ['odoo-rfp', id],
-    queryFn: () => fetchRfp(id!),
-    enabled: id !== null,
+    queryFn: () => fetchRfp(id!, profileId!),
+    enabled: id !== null && !!profileId,
     staleTime: 1000 * 60 * 5,
   });
 

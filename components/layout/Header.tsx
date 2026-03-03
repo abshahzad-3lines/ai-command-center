@@ -53,6 +53,7 @@ interface HeaderProps {
     avatar?: string;
   };
   onSignOut?: () => void;
+  notifications?: Notification[];
 }
 
 const pages: SearchResult[] = [
@@ -66,7 +67,7 @@ const pages: SearchResult[] = [
   { id: 'security', type: 'page', title: 'Security', description: 'Security settings', href: '/settings/security', icon: Settings },
 ];
 
-export function Header({ user, onSignOut }: HeaderProps) {
+export function Header({ user, onSignOut, notifications: externalNotifications = [] }: HeaderProps) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -74,29 +75,16 @@ export function Header({ user, onSignOut }: HeaderProps) {
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      title: 'New email',
-      message: 'You have 3 unread emails',
-      time: '5 min ago',
-      read: false,
-    },
-    {
-      id: '2',
-      title: 'Task reminder',
-      message: 'Review project proposal is due today',
-      time: '1 hour ago',
-      read: false,
-    },
-    {
-      id: '3',
-      title: 'Welcome!',
-      message: 'Thanks for using AI Command Center',
-      time: '2 hours ago',
-      read: true,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>(
+    externalNotifications || []
+  );
+
+  // Sync from external when provided
+  useEffect(() => {
+    if (externalNotifications) {
+      setNotifications(externalNotifications);
+    }
+  }, [externalNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -202,14 +190,14 @@ export function Header({ user, onSignOut }: HeaderProps) {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
           )}
 
           {/* Search Results Dropdown */}
-          {isSearchFocused && (searchQuery || true) && (
+          {isSearchFocused && (
             <div className="absolute top-full left-0 right-0 mt-2 rounded-lg border bg-background shadow-lg overflow-hidden z-50">
               {searchQuery && searchResults.length > 0 ? (
                 <div className="py-2">
@@ -220,7 +208,7 @@ export function Header({ user, onSignOut }: HeaderProps) {
                     <button
                       key={result.id}
                       onClick={() => handleResultClick(result)}
-                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-muted text-left"
+                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-muted text-left cursor-pointer"
                     >
                       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
                         <result.icon className="h-4 w-4" />
@@ -250,7 +238,7 @@ export function Header({ user, onSignOut }: HeaderProps) {
                     <button
                       key={page.id}
                       onClick={() => handleResultClick(page)}
-                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-muted text-left"
+                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-muted text-left cursor-pointer"
                     >
                       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
                         <page.icon className="h-4 w-4" />

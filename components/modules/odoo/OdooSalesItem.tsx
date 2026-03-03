@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { Check, X, Sparkles, Loader2, User } from 'lucide-react';
+import { Check, X, Sparkles, Loader2, User, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,7 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, getOdooRecordUrl } from '@/lib/utils';
 import type { OdooSalesOrderSummary } from '@/types/odoo';
 
 interface OdooSalesItemProps {
@@ -72,6 +72,7 @@ export function OdooSalesItem({
   const formattedDate = format(new Date(order.date), 'MMM d, yyyy');
   const priority = order.aiPriority || 'medium';
   const suggestedAction = order.aiSuggestedAction;
+  const odooUrl = getOdooRecordUrl('sales', order.id);
 
   const canConfirm = order.state === 'draft' || order.state === 'sent';
   const canCancel = order.state === 'draft' || order.state === 'sent' || order.state === 'sale';
@@ -192,6 +193,20 @@ export function OdooSalesItem({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Cancel Order</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Open in Odoo */}
+        {odooUrl && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a href={odooUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-purple-600 hover:bg-purple-100">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Open in Odoo</TooltipContent>
           </Tooltip>
         )}
       </div>

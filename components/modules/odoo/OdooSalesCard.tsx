@@ -24,8 +24,8 @@ interface OdooSalesCardProps {
   isLoading?: boolean;
   error?: string | null;
   onRefresh: () => void;
-  onConfirm: (id: number) => Promise<void>;
-  onCancel: (id: number) => Promise<void>;
+  onConfirm: (id: number) => void | Promise<void>;
+  onCancel: (id: number) => void | Promise<void>;
   isConfigured?: boolean;
   onConfigure?: () => void;
 }
@@ -104,7 +104,7 @@ export function OdooSalesCard({
                 <button
                   onClick={() => setSortBy('time')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'time'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -116,7 +116,7 @@ export function OdooSalesCard({
                 <button
                   onClick={() => setSortBy('priority')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'priority'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'

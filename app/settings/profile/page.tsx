@@ -10,16 +10,49 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 
 export default function ProfileSettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, profileId } = useAuth();
   const [name, setName] = useState(user?.name || user?.username || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
+    if (!profileId) {
+      toast.error('No profile linked. Please sign in again.');
+      return;
+    }
+
     setIsSaving(true);
-    // Simulate save
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    toast.success('Profile updated successfully');
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': profileId,
+        },
+        body: JSON.stringify({ full_name: name }),
+      });
+
+      // Also update the profile name directly
+      await fetch('/api/auth/ensure-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          microsoftId: user?.localAccountId,
+          email: user?.username,
+          name: name,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Profile updated successfully');
+      } else {
+        toast.error(data.error || 'Failed to save profile');
+      }
+    } catch {
+      toast.error('Failed to save profile');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

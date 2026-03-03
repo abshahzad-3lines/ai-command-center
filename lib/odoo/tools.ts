@@ -317,6 +317,150 @@ export const odooTools: ClaudeTool[] = [
     },
   },
 
+  // ============ Create Records ============
+  {
+    name: 'create_sales_order',
+    description:
+      'Create a new sales order (quotation) in Odoo. This is a WRITE action. ' +
+      'IMPORTANT: Before calling this tool, you MUST have ALL required information: customer/partner ID, and at least one order line with product ID, quantity, and price. ' +
+      'Use search_odoo_records with model "res.partner" to look up the customer by name first. ' +
+      'Use search_odoo_records with model "product.product" to look up products by name first. ' +
+      'Do NOT call this tool if you are missing any required fields — ask the user for the missing info instead. ' +
+      'Returns the created sales order details.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        partner_id: {
+          type: 'number',
+          description: 'The numeric ID of the customer (res.partner). Use search_odoo_records to find this. Example: 42',
+        },
+        order_lines: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              product_id: {
+                type: 'number',
+                description: 'The numeric ID of the product. Use search_odoo_records with model "product.product" to find this.',
+              },
+              quantity: {
+                type: 'number',
+                description: 'The quantity to order. Must be a positive number. Example: 10',
+              },
+              price_unit: {
+                type: 'number',
+                description: 'The unit price. If omitted, the product\'s default price will be used. Example: 99.99',
+              },
+            },
+            required: ['product_id', 'quantity'],
+          },
+          description: 'Array of order line items. Each must have a product_id and quantity.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional internal note for the order.',
+        },
+      },
+      required: ['partner_id', 'order_lines'],
+    },
+  },
+  {
+    name: 'create_purchase_order',
+    description:
+      'Create a new purchase order (RFQ) in Odoo. This is a WRITE action. ' +
+      'IMPORTANT: Before calling this tool, you MUST have ALL required information: vendor/partner ID, and at least one order line with product ID, quantity, and price. ' +
+      'Use search_odoo_records with model "res.partner" to look up the vendor by name first. ' +
+      'Use search_odoo_records with model "product.product" to look up products by name first. ' +
+      'Do NOT call this tool if you are missing any required fields — ask the user for the missing info instead. ' +
+      'Returns the created purchase order details.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        partner_id: {
+          type: 'number',
+          description: 'The numeric ID of the vendor (res.partner). Use search_odoo_records to find this. Example: 15',
+        },
+        order_lines: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              product_id: {
+                type: 'number',
+                description: 'The numeric ID of the product. Use search_odoo_records with model "product.product" to find this.',
+              },
+              quantity: {
+                type: 'number',
+                description: 'The quantity to order. Must be a positive number. Example: 50',
+              },
+              price_unit: {
+                type: 'number',
+                description: 'The unit price from the vendor. Example: 25.00',
+              },
+            },
+            required: ['product_id', 'quantity', 'price_unit'],
+          },
+          description: 'Array of order line items. Each must have product_id, quantity, and price_unit.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional internal note for the purchase order.',
+        },
+      },
+      required: ['partner_id', 'order_lines'],
+    },
+  },
+  {
+    name: 'create_invoice',
+    description:
+      'Create a new customer invoice (draft) in Odoo. This is a WRITE action. ' +
+      'IMPORTANT: Before calling this tool, you MUST have ALL required information: customer/partner ID, and at least one invoice line with description, quantity, and unit price. ' +
+      'Use search_odoo_records with model "res.partner" to look up the customer by name first. ' +
+      'Do NOT call this tool if you are missing any required fields — ask the user for the missing info instead. ' +
+      'The invoice is created in "draft" state — it must be posted separately. ' +
+      'Returns the created invoice details.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        partner_id: {
+          type: 'number',
+          description: 'The numeric ID of the customer (res.partner). Use search_odoo_records to find this. Example: 42',
+        },
+        invoice_lines: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Description of the invoice line. Example: "Consulting services - March 2026"',
+              },
+              product_id: {
+                type: 'number',
+                description: 'Optional product ID. If omitted, uses the description as a manual line.',
+              },
+              quantity: {
+                type: 'number',
+                description: 'The quantity. Default: 1. Example: 5',
+              },
+              price_unit: {
+                type: 'number',
+                description: 'The unit price. Example: 500.00',
+              },
+            },
+            required: ['name', 'quantity', 'price_unit'],
+          },
+          description: 'Array of invoice line items. Each must have name, quantity, and price_unit.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional narration/notes for the invoice.',
+        },
+      },
+      required: ['partner_id', 'invoice_lines'],
+    },
+  },
+
   // ============ Generic Odoo Search ============
   {
     name: 'search_odoo_records',

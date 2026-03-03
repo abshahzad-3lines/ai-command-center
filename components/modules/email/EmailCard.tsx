@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// ScrollArea removed — plain div with overflow-y-auto fits edge-to-edge
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmailItem } from './EmailItem';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ interface EmailCardProps {
   onRefresh: () => void;
   onAction: (emailId: string, actionType: string) => Promise<void>;
   onDelete: (emailId: string) => Promise<void>;
+  onEmailClick?: (emailId: string) => void;
   isConnected?: boolean;
   onConnect?: () => void;
 }
@@ -35,6 +36,7 @@ export function EmailCard({
   onRefresh,
   onAction,
   onDelete,
+  onEmailClick,
   isConnected = false,
   onConnect,
 }: EmailCardProps) {
@@ -75,7 +77,7 @@ export function EmailCard({
   };
 
   return (
-    <Card className="flex flex-col h-full">
+    <Card className="flex flex-col h-full min-w-0 overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center gap-2">
           <Mail className="h-5 w-5 text-muted-foreground" />
@@ -92,7 +94,7 @@ export function EmailCard({
                 <button
                   onClick={() => setSortBy('time')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'time'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -104,7 +106,7 @@ export function EmailCard({
                 <button
                   onClick={() => setSortBy('priority')}
                   className={cn(
-                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors',
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
                     sortBy === 'priority'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
@@ -177,7 +179,7 @@ export function EmailCard({
 
         {/* Email List */}
         {isConnected && !isLoading && !error && (
-          <ScrollArea className="h-[380px] pr-4">
+          <div className="h-[380px] overflow-y-auto min-w-0">
             {sortedEmails.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center">
                 <Mail className="h-12 w-12 text-muted-foreground mb-4" />
@@ -194,6 +196,7 @@ export function EmailCard({
                     email={email}
                     onAction={handleAction}
                     onDelete={handleDelete}
+                    onClick={onEmailClick}
                     isActionLoading={actionLoadingId === email.id}
                     isDeleteLoading={deleteLoadingId === email.id}
                     showPriority={sortBy === 'priority'}
@@ -201,7 +204,7 @@ export function EmailCard({
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
         )}
       </CardContent>
     </Card>

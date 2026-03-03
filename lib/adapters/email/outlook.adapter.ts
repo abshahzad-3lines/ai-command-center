@@ -105,6 +105,46 @@ export class OutlookAdapter implements EmailAdapter {
     }
   }
 
+  async sendEmail(
+    to: string[],
+    subject: string,
+    body: string,
+    cc?: string[],
+    bcc?: string[]
+  ): Promise<boolean> {
+    if (!this.client) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      const message = {
+        message: {
+          subject,
+          body: {
+            contentType: 'Text',
+            content: body,
+          },
+          toRecipients: to.map((addr) => ({
+            emailAddress: { address: addr },
+          })),
+          ccRecipients: cc?.map((addr) => ({
+            emailAddress: { address: addr },
+          })),
+          bccRecipients: bcc?.map((addr) => ({
+            emailAddress: { address: addr },
+          })),
+        },
+        saveToSentItems: true,
+      };
+
+      await this.client.api('/me/sendMail').post(message);
+      return true;
+    } catch (error) {
+      console.error('Failed to send email:', error);
+      return false;
+    }
+  }
+
   async archiveEmail(id: string): Promise<boolean> {
     if (!this.client) {
       throw new Error('Not authenticated');
@@ -135,6 +175,41 @@ export class OutlookAdapter implements EmailAdapter {
       return true;
     } catch (error) {
       console.error('Failed to mark as read:', error);
+      return false;
+    }
+  }
+
+  async forwardEmail(id: string, to: string[], comment?: string): Promise<boolean> {
+    if (!this.client) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      await this.client.api(`/me/messages/${id}/forward`).post({
+        comment: comment || '',
+        toRecipients: to.map((addr) => ({
+          emailAddress: { address: addr },
+        })),
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to forward email:', error);
+      return false;
+    }
+  }
+
+  async flagEmail(id: string): Promise<boolean> {
+    if (!this.client) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      await this.client.api(`/me/messages/${id}`).patch({
+        flag: { flagStatus: 'flagged' },
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to flag email:', error);
       return false;
     }
   }

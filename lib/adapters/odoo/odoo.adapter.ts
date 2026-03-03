@@ -55,6 +55,7 @@ const INVOICE_FIELDS = [
 
 export class OdooAdapterImpl implements OdooAdapter {
   private client: OdooJsonRpcClient;
+  private defaultJournalId: number | null = null;
 
   constructor(config: OdooAdapterConfig) {
     this.client = new OdooJsonRpcClient(config);
@@ -327,11 +328,12 @@ export class OdooAdapterImpl implements OdooAdapter {
 
       // Create payment wizard and register payment
       const paymentDate = date || new Date().toISOString().split('T')[0];
+      const journalId = await this.getDefaultJournalId();
 
       const wizardId = await this.client.create('account.payment.register', {
         amount: amount,
         payment_date: paymentDate,
-        journal_id: 1, // Default journal - may need configuration
+        journal_id: journalId,
       });
 
       if (wizardId) {
@@ -367,20 +369,77 @@ export class OdooAdapterImpl implements OdooAdapter {
         return { success: false, message: 'Invoice not found', error: 'Record not found' };
       }
 
-      // For now, log the reminder action - actual email sending depends on Odoo configuration
+      // Get partner email for sending
+      const partners = await this.client.searchRead<{ id: number; email: string; name: string }>(
+        'res.partner',
+        [['id', '=', (invoice.partner_id as unknown as [number, string])[0]]],
+        ['id', 'email', 'name'],
+        { limit: 1 }
+      );
+
+      const partner = partners[0];
+      if (!partner?.email) {
+        // Fallback: log internal note if no partner email
+        await this.client.callKw('mail.message', 'create', [
+          {
+            model: 'account.move',
+            res_id: invoiceId,
+            body: `<p><strong>Payment Reminder (${reminderType}):</strong> Could not send email — no email address on file for partner.</p>`,
+            message_type: 'comment',
+          },
+        ]);
+        return {
+          success: false,
+          message: `No email address found for partner. Internal note added to invoice ${invoice.name}.`,
+          error: 'Partner has no email address',
+        };
+      }
+
+      // Build reminder subject and body based on type
+      const subjectMap = {
+        friendly: `Friendly Reminder: Invoice ${invoice.name} Payment`,
+        formal: `Payment Reminder: Invoice ${invoice.name} — Amount Due`,
+        final_notice: `Final Notice: Invoice ${invoice.name} — Immediate Payment Required`,
+      };
+
+      const amountDue = (invoice.amount_residual as number) || 0;
+      const currency = Array.isArray(invoice.currency_id) ? invoice.currency_id[1] : 'SAR';
+
+      const bodyMap = {
+        friendly: `<p>Dear ${partner.name},</p><p>This is a friendly reminder that invoice <strong>${invoice.name}</strong> with an outstanding amount of <strong>${currency} ${amountDue.toLocaleString()}</strong> is due for payment.</p><p>If you have already made the payment, please disregard this message.</p><p>Best regards</p>`,
+        formal: `<p>Dear ${partner.name},</p><p>We wish to bring to your attention that invoice <strong>${invoice.name}</strong> remains unpaid with an outstanding balance of <strong>${currency} ${amountDue.toLocaleString()}</strong>.</p><p>We kindly request that you arrange payment at your earliest convenience.</p><p>Regards</p>`,
+        final_notice: `<p>Dear ${partner.name},</p><p><strong>FINAL NOTICE:</strong> Invoice <strong>${invoice.name}</strong> with an outstanding amount of <strong>${currency} ${amountDue.toLocaleString()}</strong> requires immediate payment.</p><p>Please arrange payment within 7 days to avoid further action.</p><p>Regards</p>`,
+      };
+
+      // Send actual email via Odoo's mail.mail model
+      const mailId = await this.client.create('mail.mail', {
+        subject: subjectMap[reminderType],
+        body_html: bodyMap[reminderType],
+        email_to: partner.email,
+        model: 'account.move',
+        res_id: invoiceId,
+        auto_delete: true,
+      });
+
+      if (mailId) {
+        // Trigger the send
+        await this.client.callKw('mail.mail', 'send', [[mailId]]);
+      }
+
+      // Also log the action on the invoice
       await this.client.callKw('mail.message', 'create', [
         {
           model: 'account.move',
           res_id: invoiceId,
-          body: `<p><strong>Payment Reminder Sent:</strong> ${reminderType}</p>`,
+          body: `<p><strong>Payment Reminder Sent (${reminderType}):</strong> Email sent to ${partner.email}</p>`,
           message_type: 'comment',
         },
       ]);
 
       return {
         success: true,
-        message: `${reminderType} reminder sent for invoice ${invoice.name}`,
-        data: { invoiceId, reminderType },
+        message: `${reminderType} reminder email sent to ${partner.email} for invoice ${invoice.name}`,
+        data: { invoiceId, reminderType, sentTo: partner.email },
       };
     } catch (error) {
       return {
@@ -389,6 +448,167 @@ export class OdooAdapterImpl implements OdooAdapter {
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+  }
+
+  // ============ Record Creation ============
+
+  async createSalesOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit?: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    try {
+      const lines = orderLines.map((line) => [
+        0,
+        0,
+        {
+          product_id: line.product_id,
+          product_uom_qty: line.quantity,
+          ...(line.price_unit !== undefined ? { price_unit: line.price_unit } : {}),
+        },
+      ]);
+
+      const values: Record<string, unknown> = {
+        partner_id: partnerId,
+        order_line: lines,
+      };
+      if (note) values.note = note;
+
+      const newId = await this.client.create('sale.order', values);
+      if (!newId) {
+        return { success: false, message: 'Failed to create sales order', error: 'Create returned null' };
+      }
+
+      const order = await this.getSalesOrder(newId);
+      return {
+        success: true,
+        message: `Sales order ${order?.name || newId} created successfully`,
+        data: { id: newId, name: order?.name, state: 'draft' },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to create sales order',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async createPurchaseOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    try {
+      const lines = orderLines.map((line) => [
+        0,
+        0,
+        {
+          product_id: line.product_id,
+          product_qty: line.quantity,
+          price_unit: line.price_unit,
+        },
+      ]);
+
+      const values: Record<string, unknown> = {
+        partner_id: partnerId,
+        order_line: lines,
+      };
+      if (note) values.notes = note;
+
+      const newId = await this.client.create('purchase.order', values);
+      if (!newId) {
+        return { success: false, message: 'Failed to create purchase order', error: 'Create returned null' };
+      }
+
+      const order = await this.getRfp(newId);
+      return {
+        success: true,
+        message: `Purchase order ${order?.name || newId} created successfully`,
+        data: { id: newId, name: order?.name, state: 'draft' },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to create purchase order',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async createInvoice(
+    partnerId: number,
+    invoiceLines: Array<{ name: string; product_id?: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult> {
+    try {
+      const lines = invoiceLines.map((line) => [
+        0,
+        0,
+        {
+          name: line.name,
+          quantity: line.quantity,
+          price_unit: line.price_unit,
+          ...(line.product_id ? { product_id: line.product_id } : {}),
+        },
+      ]);
+
+      const values: Record<string, unknown> = {
+        partner_id: partnerId,
+        move_type: 'out_invoice',
+        invoice_line_ids: lines,
+      };
+      if (note) values.narration = note;
+
+      const newId = await this.client.create('account.move', values);
+      if (!newId) {
+        return { success: false, message: 'Failed to create invoice', error: 'Create returned null' };
+      }
+
+      const invoice = await this.getInvoice(newId);
+      return {
+        success: true,
+        message: `Invoice ${invoice?.name || newId} created successfully (draft)`,
+        data: { id: newId, name: invoice?.name, state: 'draft' },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to create invoice',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  // ============ Journal Lookup ============
+
+  /**
+   * Get the default bank journal ID for payments.
+   * Caches the result to avoid repeated lookups.
+   */
+  private async getDefaultJournalId(): Promise<number> {
+    if (this.defaultJournalId !== null) {
+      return this.defaultJournalId;
+    }
+
+    try {
+      const journals = await this.client.searchRead<{ id: number }>(
+        'account.journal',
+        [['type', '=', 'bank']],
+        ['id'],
+        { limit: 1 }
+      );
+      if (journals.length > 0) {
+        this.defaultJournalId = journals[0].id;
+        return this.defaultJournalId;
+      }
+    } catch (error) {
+      console.error('Failed to look up default journal:', error);
+    }
+
+    // Fallback to 1 if no bank journal found
+    this.defaultJournalId = 1;
+    return this.defaultJournalId;
   }
 
   // ============ Tool Execution ============

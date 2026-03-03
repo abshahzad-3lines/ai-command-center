@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { Check, X, Sparkles, Loader2, Building2 } from 'lucide-react';
+import { Check, X, Sparkles, Loader2, Building2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,7 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, getOdooRecordUrl } from '@/lib/utils';
 import type { OdooRfpSummary } from '@/types/odoo';
 
 interface OdooRfpItemProps {
@@ -67,6 +67,7 @@ export function OdooRfpItem({
   const formattedDate = format(new Date(rfp.date), 'MMM d, yyyy');
   const priority = rfp.aiPriority || 'medium';
   const suggestedAction = rfp.aiSuggestedAction;
+  const odooUrl = getOdooRecordUrl('rfp', rfp.id);
 
   const canApprove = rfp.state === 'to approve' || rfp.state === 'draft';
   const canReject = rfp.state === 'to approve' || rfp.state === 'draft';
@@ -185,6 +186,20 @@ export function OdooRfpItem({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Reject RFP</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Open in Odoo */}
+        {odooUrl && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a href={odooUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-purple-600 hover:bg-purple-100">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Open in Odoo</TooltipContent>
           </Tooltip>
         )}
       </div>

@@ -16,6 +16,7 @@ interface EmailItemProps {
   email: EmailSummary;
   onAction: (emailId: string, actionType: string) => void;
   onDelete: (emailId: string) => void;
+  onClick?: (emailId: string) => void;
   isActionLoading?: boolean;
   isDeleteLoading?: boolean;
   showPriority?: boolean;
@@ -52,6 +53,7 @@ export function EmailItem({
   email,
   onAction,
   onDelete,
+  onClick,
   isActionLoading,
   isDeleteLoading,
   showPriority = false,
@@ -60,82 +62,88 @@ export function EmailItem({
   const actionColor = actionTypeColors[email.suggestedAction.type] || actionTypeColors.none;
 
   return (
-    <div className="group flex items-start gap-4 rounded-lg border p-4 transition-colors hover:bg-accent/50">
-      {/* Priority Indicator */}
-      <div className="flex flex-col items-center gap-1 pt-1">
-        <div
-          className={cn('h-2 w-2 rounded-full', priorityColors[email.priority])}
-          title={`${priorityLabels[email.priority]} priority`}
-        />
-      </div>
-
-      {/* Email Content */}
-      <div className="flex-1 min-w-0">
-        {/* Header */}
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-medium text-sm truncate">{email.from}</span>
-          {showPriority && (
-            <Badge
-              variant="outline"
-              className={cn('text-[10px] px-1.5 py-0', priorityBadgeColors[email.priority])}
-            >
-              {priorityLabels[email.priority]}
-            </Badge>
-          )}
-          <span className="text-xs text-muted-foreground ml-auto">{formattedDate}</span>
+    <div
+      className={cn(
+        'group rounded-lg border p-3 transition-colors hover:bg-accent/50 min-w-0 overflow-hidden',
+        onClick && 'cursor-pointer'
+      )}
+      onClick={() => onClick?.(email.id)}
+    >
+      <div className="flex items-start gap-3 min-w-0">
+        {/* Priority Indicator */}
+        <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
+          <div
+            className={cn('h-2 w-2 rounded-full', priorityColors[email.priority])}
+            title={`${priorityLabels[email.priority]} priority`}
+          />
         </div>
 
-        {/* Subject */}
-        <h4 className="font-semibold text-sm mb-1 truncate">{email.subject}</h4>
+        {/* Email Content */}
+        <div className="flex-1 min-w-0">
+          {/* Header */}
+          <div className="flex items-center gap-2 mb-1 min-w-0">
+            <span className="font-medium text-sm truncate">{email.from}</span>
+            {showPriority && (
+              <Badge
+                variant="outline"
+                className={cn('text-[10px] px-1.5 py-0 shrink-0', priorityBadgeColors[email.priority])}
+              >
+                {priorityLabels[email.priority]}
+              </Badge>
+            )}
+            <span className="text-xs text-muted-foreground ml-auto shrink-0">{formattedDate}</span>
+          </div>
 
-        {/* AI Summary */}
-        <p className="text-sm text-muted-foreground line-clamp-2">{email.summary}</p>
-      </div>
+          {/* Subject */}
+          <h4 className="font-semibold text-sm mb-1 truncate">{email.subject}</h4>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        {/* AI Suggested Action */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant="ghost"
-              className={`h-8 gap-1.5 ${actionColor}`}
-              onClick={() => onAction(email.id, email.suggestedAction.type)}
-              disabled={isActionLoading}
-            >
-              {isActionLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Sparkles className="h-3 w-3" />
-              )}
-              {email.suggestedAction.label}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p className="max-w-xs text-sm">{email.suggestedAction.description || 'Review this email'}</p>
-          </TooltipContent>
-        </Tooltip>
+          {/* AI Summary */}
+          <p className="text-sm text-muted-foreground line-clamp-2">{email.summary}</p>
 
-        {/* Delete Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-              onClick={() => onDelete(email.id)}
-              disabled={isDeleteLoading}
-            >
-              {isDeleteLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Delete email</TooltipContent>
-        </Tooltip>
+          {/* Actions - inline below content */}
+          <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={cn('h-7 gap-1 text-xs', actionColor)}
+                  onClick={() => onClick?.(email.id)}
+                  disabled={isActionLoading}
+                >
+                  {isActionLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {email.suggestedAction.label}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="max-w-xs text-sm">Open email to review and take action</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDelete(email.id)}
+                  disabled={isDeleteLoading}
+                >
+                  {isDeleteLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3 w-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Delete email</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
       </div>
     </div>
   );

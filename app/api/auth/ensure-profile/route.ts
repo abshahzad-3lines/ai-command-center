@@ -124,6 +124,19 @@ export async function POST(
       );
     }
 
+    // Create default user_settings row for the new profile
+    await supabase
+      .from('user_settings')
+      .upsert({
+        user_id: profileId,
+        theme: 'system',
+        notifications_email: true,
+        notifications_push: false,
+        notifications_desktop: true,
+        email_connected: false,
+        calendar_connected: false,
+      }, { onConflict: 'user_id' });
+
     return NextResponse.json({
       success: true,
       data: created as ProfileResponse,

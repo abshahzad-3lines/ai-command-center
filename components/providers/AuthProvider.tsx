@@ -192,8 +192,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (mounted) {
               setAccessToken(tokenResponse.accessToken);
             }
-          } catch {
-            console.log('Silent token failed, will need interactive login');
+          } catch (silentError) {
+            console.log('Silent token failed during init, will use redirect fallback...', silentError);
+            // Use redirect instead of popup to avoid block_nested_popups error
+            // (popup fails if a redirect interaction just completed)
+            if (silentError instanceof InteractionRequiredAuthError) {
+              try {
+                await instance.acquireTokenRedirect({
+                  ...loginRequest,
+                  account: accounts[0],
+                });
+              } catch (redirectError) {
+                console.error('Token redirect also failed:', redirectError);
+                if (mounted) {
+                  setIsAuthenticated(false);
+                  setUser(null);
+                  setAccessToken(null);
+                }
+              }
+            } else {
+              // Non-interaction error — clear auth state
+              if (mounted) {
+                setIsAuthenticated(false);
+                setUser(null);
+                setAccessToken(null);
+              }
+            }
           }
         }
       } catch (error) {
@@ -287,17 +311,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAccessToken(response.accessToken);
       return response.accessToken;
     } catch (error) {
+      // Silent acquisition failed — use redirect (avoids block_nested_popups)
+      console.log('Silent token refresh failed, using redirect...', error instanceof Error ? error.message : error);
       if (error instanceof InteractionRequiredAuthError) {
         try {
-          const response = await instance.acquireTokenPopup(loginRequest);
-          setAccessToken(response.accessToken);
-          return response.accessToken;
-        } catch (popupError) {
-          console.error('Token popup error:', popupError);
+          await instance.acquireTokenRedirect({
+            ...loginRequest,
+            account: user,
+          });
+          // Page will redirect, so return null for now
           return null;
+        } catch (redirectError) {
+          console.error('Token redirect error:', redirectError);
         }
       }
-      console.error('Token error:', error);
+      // Token is completely unrecoverable — reset auth state
+      setIsAuthenticated(false);
+      setUser(null);
+      setAccessToken(null);
+      setProfileId(null);
       return null;
     }
   }, [user]);

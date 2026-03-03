@@ -212,119 +212,60 @@ export class OdooService {
 
   // ============ AI Analysis Methods ============
 
+  private static readonly AI_SYSTEM_PROMPT = `You are a business operations analyst. Analyze the given Odoo ERP record and respond with ONLY a JSON object (no markdown, no explanation):
+{"summary":"brief 1-sentence summary of what needs attention","priority":"high|medium|low","action":{"type":"approve|reject|confirm|pay|remind|follow_up|escalate|none","label":"2-3 word button label","description":"1 sentence explaining why this action","urgency":"immediate|soon|normal"}}
+
+Priority rules: high = overdue/blocking/large amounts awaiting action, medium = drafts needing confirmation, low = completed/small/no action needed.`;
+
   private async analyzeRfp(rfp: OdooRfpSummary): Promise<OdooAIAnalysis> {
-    const prompt = `Analyze this purchase request/RFP:
-Name: ${rfp.name}
-Vendor: ${rfp.vendor}
-Amount: ${rfp.currencySymbol}${rfp.amount.toFixed(2)}
-Status: ${rfp.stateLabel}
-Date: ${rfp.date.toLocaleDateString()}
-${rfp.origin ? `Origin: ${rfp.origin}` : ''}
-
-Provide:
-1. A brief summary (1-2 sentences)
-2. Priority (high/medium/low) based on amount and status
-3. Suggested action: approve, reject, follow_up, respond, or none
-4. Brief reason for the suggestion`;
-
-    return this.parseAIAnalysis(await this.callAI(prompt), rfp);
+    const prompt = `[RFP] ${rfp.name} | Vendor: ${rfp.vendor} | ${rfp.currencySymbol}${rfp.amount.toFixed(2)} | Status: ${rfp.stateLabel} | Date: ${rfp.date.toLocaleDateString()}${rfp.origin ? ` | Origin: ${rfp.origin}` : ''}`;
+    return this.callAIStructured(prompt, rfp);
   }
 
   private async analyzeSalesOrder(order: OdooSalesOrderSummary): Promise<OdooAIAnalysis> {
-    const prompt = `Analyze this sales order:
-Name: ${order.name}
-Customer: ${order.customer}
-Amount: ${order.currencySymbol}${order.amount.toFixed(2)}
-Status: ${order.stateLabel}
-Invoice Status: ${order.invoiceStatusLabel}
-Date: ${order.date.toLocaleDateString()}
-
-Provide:
-1. A brief summary (1-2 sentences)
-2. Priority (high/medium/low) based on amount and status
-3. Suggested action: confirm, follow_up, respond, or none
-4. Brief reason for the suggestion`;
-
-    return this.parseAIAnalysis(await this.callAI(prompt), order);
+    const prompt = `[Sales Order] ${order.name} | Customer: ${order.customer} | ${order.currencySymbol}${order.amount.toFixed(2)} | Status: ${order.stateLabel} | Invoice: ${order.invoiceStatusLabel} | Date: ${order.date.toLocaleDateString()}`;
+    return this.callAIStructured(prompt, order);
   }
 
   private async analyzeInvoice(invoice: OdooInvoiceSummary): Promise<OdooAIAnalysis> {
     const overdueText = invoice.isOverdue
-      ? `OVERDUE by ${invoice.daysOverdue} days!`
+      ? `OVERDUE ${invoice.daysOverdue} days`
       : `Due: ${invoice.dueDate.toLocaleDateString()}`;
-
-    const prompt = `Analyze this invoice:
-Name: ${invoice.name}
-Partner: ${invoice.partner}
-Total: ${invoice.currencySymbol}${invoice.amount.toFixed(2)}
-Amount Due: ${invoice.currencySymbol}${invoice.amountDue.toFixed(2)}
-Payment Status: ${invoice.paymentStateLabel}
-${overdueText}
-
-Provide:
-1. A brief summary (1-2 sentences)
-2. Priority (high/medium/low) - high if overdue or large amount
-3. Suggested action: pay, remind, follow_up, or none
-4. Brief reason for the suggestion`;
-
-    return this.parseAIAnalysis(await this.callAI(prompt), invoice);
+    const prompt = `[Invoice] ${invoice.name} | Partner: ${invoice.partner} | Total: ${invoice.currencySymbol}${invoice.amount.toFixed(2)} | Due: ${invoice.currencySymbol}${invoice.amountDue.toFixed(2)} | Payment: ${invoice.paymentStateLabel} | ${overdueText}`;
+    return this.callAIStructured(prompt, invoice);
   }
 
-  private async callAI(prompt: string): Promise<string> {
-    return this.aiAdapter.chat([{ role: 'user', content: prompt }]);
-  }
+  private async callAIStructured(
+    prompt: string,
+    record: OdooRfpSummary | OdooSalesOrderSummary | OdooInvoiceSummary
+  ): Promise<OdooAIAnalysis> {
+    try {
+      const response = await this.aiAdapter.chat([
+        { role: 'user', content: `${OdooService.AI_SYSTEM_PROMPT}\n\nAnalyze: ${prompt}` },
+      ]);
 
-  private parseAIAnalysis(response: string, record: OdooRfpSummary | OdooSalesOrderSummary | OdooInvoiceSummary): OdooAIAnalysis {
-    // Simple parsing - extract key information from response
-    const lines = response.toLowerCase();
+      // Parse structured JSON response
+      let jsonText = response.trim();
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
 
-    let priority: 'high' | 'medium' | 'low' = 'medium';
-    if (lines.includes('high priority') || lines.includes('priority: high')) {
-      priority = 'high';
-    } else if (lines.includes('low priority') || lines.includes('priority: low')) {
-      priority = 'low';
+      const parsed = JSON.parse(jsonText);
+
+      return {
+        summary: parsed.summary || `${record.name} requires attention`,
+        priority: parsed.priority || 'medium',
+        suggestedAction: {
+          type: parsed.action?.type || 'none',
+          label: parsed.action?.label || 'Review',
+          description: parsed.action?.description || '',
+          urgency: parsed.action?.urgency || 'normal',
+        },
+      };
+    } catch {
+      // If JSON parsing fails, return a sensible default rather than broken data
+      throw new Error('AI analysis returned invalid format');
     }
-
-    let actionType: OdooSuggestedAction['type'] = 'none';
-    let actionLabel = 'Review';
-    let actionDescription = '';
-
-    if (lines.includes('approve')) {
-      actionType = 'approve';
-      actionLabel = 'Approve';
-      actionDescription = 'Recommend approval based on analysis';
-    } else if (lines.includes('reject')) {
-      actionType = 'reject';
-      actionLabel = 'Reject';
-      actionDescription = 'Consider rejection based on analysis';
-    } else if (lines.includes('confirm')) {
-      actionType = 'confirm';
-      actionLabel = 'Confirm';
-      actionDescription = 'Ready for confirmation';
-    } else if (lines.includes('remind') || lines.includes('reminder')) {
-      actionType = 'remind';
-      actionLabel = 'Send Reminder';
-      actionDescription = 'Payment reminder recommended';
-    } else if (lines.includes('follow') || lines.includes('follow-up') || lines.includes('follow up')) {
-      actionType = 'follow_up';
-      actionLabel = 'Follow Up';
-      actionDescription = 'Follow-up action needed';
-    } else if (lines.includes('respond')) {
-      actionType = 'respond';
-      actionLabel = 'Respond';
-      actionDescription = 'Response needed';
-    }
-
-    return {
-      summary: response.split('\n')[0] || `${record.name} requires attention`,
-      priority,
-      suggestedAction: {
-        type: actionType,
-        label: actionLabel,
-        description: actionDescription,
-        urgency: priority === 'high' ? 'immediate' : priority === 'medium' ? 'soon' : 'normal',
-      },
-    };
   }
 
   // ============ Default Analysis (fallback) ============

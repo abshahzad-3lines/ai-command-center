@@ -43,6 +43,23 @@ export interface OdooAdapter {
   registerPayment(invoiceId: number, amount: number, date?: string): Promise<OdooToolResult>;
   sendReminder(invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice'): Promise<OdooToolResult>;
 
+  // Record Creation
+  createSalesOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit?: number }>,
+    note?: string
+  ): Promise<OdooToolResult>;
+  createPurchaseOrder(
+    partnerId: number,
+    orderLines: Array<{ product_id: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult>;
+  createInvoice(
+    partnerId: number,
+    invoiceLines: Array<{ name: string; product_id?: number; quantity: number; price_unit: number }>,
+    note?: string
+  ): Promise<OdooToolResult>;
+
   // Tool Execution
   executeTool(toolName: string, args: Record<string, unknown>): Promise<OdooToolResult>;
 

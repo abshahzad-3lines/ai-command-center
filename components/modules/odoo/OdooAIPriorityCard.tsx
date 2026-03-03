@@ -5,7 +5,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Sparkles, RefreshCw, ExternalLink, FileText, ShoppingCart, Receipt, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Sparkles, RefreshCw, ExternalLink, FileText, ShoppingCart, Receipt, AlertTriangle, ChevronRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import {
   Card,
@@ -17,7 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, getOdooRecordUrl } from '@/lib/utils';
 import type { OdooRfpSummary, OdooSalesOrderSummary, OdooInvoiceSummary } from '@/types/odoo';
 
 /**
@@ -33,6 +33,7 @@ interface PriorityItem {
   currencySymbol: string;
   aiSummary?: string;
   aiPriority: 'high' | 'medium' | 'low';
+  actionType: string;
   actionLabel: string;
   actionDescription: string;
   urgency: 'immediate' | 'soon' | 'normal';
@@ -140,6 +141,7 @@ export function OdooAIPriorityCard({
           currencySymbol: rfp.currencySymbol,
           aiSummary: rfp.aiSummary,
           aiPriority: rfp.aiPriority || 'medium',
+          actionType: rfp.aiSuggestedAction?.type || 'none',
           actionLabel: rfp.aiSuggestedAction?.label || 'Review',
           actionDescription: rfp.aiSuggestedAction?.description || 'Review this purchase request',
           urgency: rfp.aiSuggestedAction?.urgency || 'normal',
@@ -161,6 +163,7 @@ export function OdooAIPriorityCard({
           currencySymbol: order.currencySymbol,
           aiSummary: order.aiSummary,
           aiPriority: order.aiPriority || 'medium',
+          actionType: order.aiSuggestedAction?.type || 'none',
           actionLabel: order.aiSuggestedAction?.label || 'Review',
           actionDescription: order.aiSuggestedAction?.description || 'Review this sales order',
           urgency: order.aiSuggestedAction?.urgency || 'normal',
@@ -182,6 +185,7 @@ export function OdooAIPriorityCard({
           currencySymbol: invoice.currencySymbol,
           aiSummary: invoice.aiSummary,
           aiPriority: invoice.isOverdue ? 'high' : (invoice.aiPriority || 'medium'),
+          actionType: invoice.aiSuggestedAction?.type || 'none',
           actionLabel: invoice.aiSuggestedAction?.label || 'Review',
           actionDescription: invoice.aiSuggestedAction?.description || 'Review this invoice',
           urgency: invoice.isOverdue ? 'immediate' : (invoice.aiSuggestedAction?.urgency || 'normal'),
@@ -214,7 +218,7 @@ export function OdooAIPriorityCard({
   const urgentCount = priorityItems.filter((i) => i.urgency === 'immediate').length;
 
   return (
-    <Card className="flex flex-col h-full">
+    <Card className="flex flex-col h-full min-w-0 overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10">
@@ -251,8 +255,16 @@ export function OdooAIPriorityCard({
       </CardHeader>
 
       <CardContent className="flex-1 pt-0">
-        <ScrollArea className="h-[380px] pr-4">
-          {priorityItems.length === 0 ? (
+        <ScrollArea className="h-[380px] pr-4 min-w-0">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center">
+              <Loader2 className="h-10 w-10 text-purple-500 animate-spin mb-4" />
+              <h3 className="font-semibold mb-1">Analyzing with AI...</h3>
+              <p className="text-sm text-muted-foreground">
+                Claude is reviewing your Odoo data and predicting next actions
+              </p>
+            </div>
+          ) : priorityItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <Sparkles className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="font-semibold mb-2">All Caught Up!</h3>
@@ -284,14 +296,17 @@ export function OdooAIPriorityCard({
                       {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm truncate">{item.name}</span>
+                          <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 shrink-0', config.bgColor, config.color)}>
+                            {config.label}
+                          </Badge>
+                          <span className="font-semibold text-sm truncate">{item.entity}</span>
                           <Badge variant="outline" className={cn('text-xs shrink-0', urgency.className)}>
                             {urgency.label}
                           </Badge>
                         </div>
 
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                          <span className="truncate">{item.entity}</span>
+                          <span className="truncate font-medium">{item.name}</span>
                           <span>•</span>
                           <span className="font-medium">
                             {item.currencySymbol} {item.amount.toLocaleString()}
@@ -313,17 +328,30 @@ export function OdooAIPriorityCard({
                           </p>
                         )}
 
-                        {/* Action Button */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => onAction?.(item)}
-                        >
-                          <Sparkles className="h-3 w-3 mr-1" />
-                          {item.actionLabel}
-                          <ChevronRight className="h-3 w-3 ml-1" />
-                        </Button>
+                        {/* Action Button + Open in Odoo */}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => onAction?.(item)}
+                          >
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            {item.actionLabel}
+                            <ChevronRight className="h-3 w-3 ml-1" />
+                          </Button>
+                          {(() => {
+                            const url = getOdooRecordUrl(item.type, item.id);
+                            return url ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer">
+                                <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-purple-600">
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  Odoo
+                                </Button>
+                              </a>
+                            ) : null;
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </div>

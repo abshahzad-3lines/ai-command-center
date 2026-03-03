@@ -33,12 +33,17 @@ export async function GET(
     });
   } catch (error) {
     console.error('Failed to fetch emails:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch emails';
+    // Check for token-related errors and return a user-friendly message
+    const isTokenError = message.includes('IDX14100') || message.includes('JWT') || message.includes('token') || message.includes('401');
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch emails',
+        error: isTokenError
+          ? 'Your session has expired. Please sign out and sign in again.'
+          : message,
       },
-      { status: 500 }
+      { status: isTokenError ? 401 : 500 }
     );
   }
 }

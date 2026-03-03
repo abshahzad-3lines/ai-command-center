@@ -1,21 +1,28 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/components/providers/AuthProvider';
 import type { ApiResponse } from '@/types';
 import type { OdooToolResult } from '@/types/odoo';
 
 interface ExecuteToolParams {
   tool: string;
   arguments: Record<string, unknown>;
+  profileId?: string;
 }
 
 async function executeOdooTool(params: ExecuteToolParams): Promise<OdooToolResult> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (params.profileId) {
+    headers['x-user-id'] = params.profileId;
+  }
+
   const response = await fetch('/api/odoo/tools/execute', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(params),
+    headers,
+    body: JSON.stringify({ tool: params.tool, arguments: params.arguments }),
   });
 
   const data: ApiResponse<OdooToolResult> = await response.json();
@@ -29,6 +36,7 @@ async function executeOdooTool(params: ExecuteToolParams): Promise<OdooToolResul
 
 export function useOdooTools() {
   const queryClient = useQueryClient();
+  const { profileId } = useAuth();
 
   const executeMutation = useMutation({
     mutationFn: executeOdooTool,
@@ -55,61 +63,47 @@ export function useOdooTools() {
     error: executeMutation.error?.message || null,
 
     // Convenience methods for common tools
-    approvePurchaseRequest: (id: number) =>
+    // Tool names and argument keys must match tool-executor.ts exactly
+    approvePurchaseOrder: (orderId: number) =>
       executeMutation.mutateAsync({
-        tool: 'approve_purchase_request',
-        arguments: { id },
+        tool: 'approve_purchase_order',
+        arguments: { order_id: orderId },
+        profileId: profileId || undefined,
       }),
 
-    rejectPurchaseRequest: (id: number, reason?: string) =>
+    rejectPurchaseOrder: (orderId: number, reason?: string) =>
       executeMutation.mutateAsync({
-        tool: 'reject_purchase_request',
-        arguments: { id, reason },
+        tool: 'reject_purchase_order',
+        arguments: { order_id: orderId, reason },
+        profileId: profileId || undefined,
       }),
 
-    confirmSalesOrder: (id: number) =>
+    confirmSalesOrder: (orderId: number) =>
       executeMutation.mutateAsync({
         tool: 'confirm_sales_order',
-        arguments: { id },
+        arguments: { order_id: orderId },
+        profileId: profileId || undefined,
+      }),
+
+    cancelSalesOrder: (orderId: number) =>
+      executeMutation.mutateAsync({
+        tool: 'cancel_sales_order',
+        arguments: { order_id: orderId },
+        profileId: profileId || undefined,
       }),
 
     registerInvoicePayment: (invoiceId: number, amount: number, date?: string) =>
       executeMutation.mutateAsync({
         tool: 'register_invoice_payment',
-        arguments: { invoice_id: invoiceId, amount, date },
+        arguments: { invoice_id: invoiceId, amount, payment_date: date },
+        profileId: profileId || undefined,
       }),
 
     sendPaymentReminder: (invoiceId: number, reminderType: 'friendly' | 'formal' | 'final_notice') =>
       executeMutation.mutateAsync({
         tool: 'send_payment_reminder',
         arguments: { invoice_id: invoiceId, reminder_type: reminderType },
-      }),
-
-    createFollowupTask: (
-      recordType: 'rfp' | 'sales_order' | 'invoice',
-      recordId: number,
-      title: string,
-      description?: string,
-      dueDate?: string
-    ) =>
-      executeMutation.mutateAsync({
-        tool: 'create_followup_task',
-        arguments: {
-          record_type: recordType,
-          record_id: recordId,
-          title,
-          description,
-          due_date: dueDate,
-        },
-      }),
-
-    generateVendorResponse: (rfpId: number, responseType: 'accept' | 'negotiate' | 'decline') =>
-      executeMutation.mutateAsync({
-        tool: 'generate_vendor_response',
-        arguments: {
-          rfp_id: rfpId,
-          response_type: responseType,
-        },
+        profileId: profileId || undefined,
       }),
   };
 }

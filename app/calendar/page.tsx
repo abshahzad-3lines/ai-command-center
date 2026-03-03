@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { DashboardShell } from '@/components/layout';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { useCalendar } from '@/hooks/useCalendar';
@@ -33,6 +33,8 @@ import {
   LogIn,
   AlertCircle,
   Trash2,
+  Pencil,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -63,14 +65,28 @@ export default function CalendarPage() {
     [currentDate]
   );
 
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editForm, setEditForm] = useState({
+    subject: '',
+    startDate: '',
+    startTime: '',
+    endDate: '',
+    endTime: '',
+    location: '',
+    isAllDay: false,
+  });
+
   const {
     events,
     isLoading,
     error,
     refetch,
     createEvent,
+    updateEvent,
     deleteEvent,
     isCreating,
+    isUpdating,
     isDeleting,
   } = useCalendar({
     accessToken,
@@ -128,6 +144,62 @@ export default function CalendarPage() {
 
   // Get events for selected date
   const selectedDateEvents = selectedDate ? eventsByDay[selectedDate] || [] : [];
+
+  // AI day insight
+  const [dayInsight, setDayInsight] = useState<{ insight: string; type: string } | null>(null);
+  const [isLoadingInsight, setIsLoadingInsight] = useState(false);
+
+  const fetchDayInsight = useCallback(async (dayEvents: CalendarEvent[], dateStr: string) => {
+    if (dayEvents.length === 0) {
+      setDayInsight(null);
+      return;
+    }
+    setIsLoadingInsight(true);
+    try {
+      const res = await fetch('/api/calendar/ai-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateStr,
+          events: dayEvents.map((e) => ({
+            subject: e.subject,
+            start: e.start,
+            end: e.end,
+            isAllDay: e.isAllDay,
+            location: e.location,
+            isOnline: e.isOnline,
+            attendees: e.attendees?.length || 0,
+            importance: e.importance,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setDayInsight(data.data);
+      }
+    } catch {
+      setDayInsight(null);
+    } finally {
+      setIsLoadingInsight(false);
+    }
+  }, []);
+
+  // Stable key for selected date events to avoid re-fetching on every render
+  const selectedEventsKey = selectedDateEvents.map((e) => e.id).join(',');
+
+  useEffect(() => {
+    if (selectedDate && selectedDateEvents.length > 0) {
+      const dateStr = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        selectedDate
+      ).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      fetchDayInsight(selectedDateEvents, dateStr);
+    } else {
+      setDayInsight(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, selectedEventsKey, fetchDayInsight]);
 
   const goToPreviousMonth = () => {
     setCurrentDate(
@@ -200,6 +272,52 @@ export default function CalendarPage() {
       toast.success('Event deleted');
     } catch {
       toast.error('Failed to delete event');
+    }
+  };
+
+  const openEditDialog = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    const start = new Date(event.start);
+    const end = new Date(event.end);
+    setEditForm({
+      subject: event.subject,
+      startDate: start.toISOString().split('T')[0],
+      startTime: start.toTimeString().slice(0, 5),
+      endDate: end.toISOString().split('T')[0],
+      endTime: end.toTimeString().slice(0, 5),
+      location: event.location || '',
+      isAllDay: event.isAllDay,
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleEditEvent = async () => {
+    if (!editingEvent || !editForm.subject || !editForm.startDate || !editForm.endDate) {
+      toast.error('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const startDateTime = editForm.isAllDay
+        ? new Date(editForm.startDate)
+        : new Date(`${editForm.startDate}T${editForm.startTime || '09:00'}`);
+      const endDateTime = editForm.isAllDay
+        ? new Date(editForm.endDate)
+        : new Date(`${editForm.endDate}T${editForm.endTime || '10:00'}`);
+
+      await updateEvent(editingEvent.id, {
+        subject: editForm.subject,
+        start: startDateTime,
+        end: endDateTime,
+        location: editForm.location || undefined,
+        isAllDay: editForm.isAllDay,
+      });
+
+      toast.success('Event updated');
+      setIsEditDialogOpen(false);
+      setEditingEvent(null);
+    } catch {
+      toast.error('Failed to update event');
     }
   };
 
@@ -485,6 +603,21 @@ export default function CalendarPage() {
                   </h3>
                 </div>
                 <ScrollArea className="flex-1 p-4">
+                  {/* AI Day Insight */}
+                  {selectedDate && selectedDateEvents.length > 0 && (
+                    <div className="mb-3 rounded-lg bg-purple-500/5 border border-purple-500/20 p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+                        <span className="text-xs font-medium text-purple-600 dark:text-purple-400">AI Insight</span>
+                      </div>
+                      {isLoadingInsight ? (
+                        <p className="text-xs text-muted-foreground animate-pulse">Analyzing your schedule...</p>
+                      ) : dayInsight ? (
+                        <p className="text-xs text-muted-foreground">{dayInsight.insight}</p>
+                      ) : null}
+                    </div>
+                  )}
+
                   {selectedDate ? (
                     selectedDateEvents.length > 0 ? (
                       <div className="space-y-3">
@@ -503,15 +636,25 @@ export default function CalendarPage() {
                                 />
                                 <h4 className="font-medium text-sm">{event.subject}</h4>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                                onClick={() => handleDeleteEvent(event.id)}
-                                disabled={isDeleting}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => openEditDialog(event)}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-destructive"
+                                  onClick={() => handleDeleteEvent(event.id)}
+                                  disabled={isDeleting}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
                             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                               <div className="flex items-center gap-1">
@@ -591,6 +734,117 @@ export default function CalendarPage() {
           )}
         </div>
       </div>
+
+      {/* Edit Event Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Event</DialogTitle>
+            <DialogDescription>
+              Update your calendar event.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-subject">Title *</Label>
+              <Input
+                id="edit-subject"
+                value={editForm.subject}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, subject: e.target.value })
+                }
+                placeholder="Event title"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="edit-allDay"
+                checked={editForm.isAllDay}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, isAllDay: e.target.checked })
+                }
+                className="h-4 w-4"
+              />
+              <Label htmlFor="edit-allDay">All day event</Label>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-startDate">Start Date *</Label>
+                <Input
+                  id="edit-startDate"
+                  type="date"
+                  value={editForm.startDate}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, startDate: e.target.value })
+                  }
+                />
+              </div>
+              {!editForm.isAllDay && (
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-startTime">Start Time</Label>
+                  <Input
+                    id="edit-startTime"
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, startTime: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-endDate">End Date *</Label>
+                <Input
+                  id="edit-endDate"
+                  type="date"
+                  value={editForm.endDate}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, endDate: e.target.value })
+                  }
+                />
+              </div>
+              {!editForm.isAllDay && (
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-endTime">End Time</Label>
+                  <Input
+                    id="edit-endTime"
+                    type="time"
+                    value={editForm.endTime}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, endTime: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-location">Location</Label>
+              <Input
+                id="edit-location"
+                value={editForm.location}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, location: e.target.value })
+                }
+                placeholder="Add location"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsEditDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleEditEvent} disabled={isUpdating}>
+              {isUpdating ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ChatWidget />
     </DashboardShell>

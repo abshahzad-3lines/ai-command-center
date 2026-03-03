@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   Shield,
   Key,
-  Smartphone,
   Monitor,
   LogOut,
   AlertTriangle,
@@ -26,31 +25,19 @@ export default function SecuritySettingsPage() {
 
   const handleSignOutAllDevices = async () => {
     setIsSigningOut(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    await logout();
-    toast.success('Signed out from all devices');
+    try {
+      await logout();
+      toast.success('Signed out from all devices');
+    } catch {
+      toast.error('Failed to sign out');
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   const handleManageMicrosoftAccount = () => {
     window.open('https://account.microsoft.com/security', '_blank');
   };
-
-  const sessions = [
-    {
-      id: '1',
-      device: 'This device',
-      browser: 'Chrome on macOS',
-      location: 'Current session',
-      current: true,
-    },
-    {
-      id: '2',
-      device: 'iPhone 15',
-      browser: 'Safari on iOS',
-      location: 'Last active 2 hours ago',
-      current: false,
-    },
-  ];
 
   return (
     <DashboardShell
@@ -130,38 +117,22 @@ export default function SecuritySettingsPage() {
         <div className="rounded-2xl border bg-card p-6 mb-6">
           <h3 className="font-semibold mb-4">Active Sessions</h3>
           <div className="space-y-3">
-            {sessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center justify-between p-4 rounded-lg border"
-              >
-                <div className="flex items-center gap-3">
-                  {session.device.includes('iPhone') ? (
-                    <Smartphone className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <Monitor className="h-5 w-5 text-muted-foreground" />
-                  )}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{session.device}</p>
-                      {session.current && (
-                        <Badge variant="secondary" className="text-xs">
-                          Current
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {session.browser} • {session.location}
-                    </p>
+            <div className="flex items-center justify-between p-4 rounded-lg border">
+              <div className="flex items-center gap-3">
+                <Monitor className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">Current Device</p>
+                    <Badge variant="secondary" className="text-xs">
+                      Current
+                    </Badge>
                   </div>
+                  <p className="text-sm text-muted-foreground">
+                    {user?.username || 'Unknown user'} • Active now
+                  </p>
                 </div>
-                {!session.current && (
-                  <Button variant="ghost" size="sm" className="text-destructive">
-                    Revoke
-                  </Button>
-                )}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
