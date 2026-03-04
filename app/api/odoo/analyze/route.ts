@@ -79,19 +79,23 @@ export async function POST(request: NextRequest) {
 3. The predicted NEXT ACTION the user should take
 
 Rules for priority:
-- high: Overdue invoices, items awaiting approval with large amounts, blocked orders
-- medium: Draft items that should be confirmed, invoices approaching due date
-- low: Completed items, small amounts, no action needed
+- high: Items BLOCKING business operations — purchase orders awaiting approval, sales orders awaiting confirmation, large-amount drafts that need action NOW
+- medium: Overdue invoices needing reminders, draft items that should be confirmed, invoices approaching due date
+- low: Completed items, small amounts, no action needed, already-sent reminders
 
 Rules for suggested actions:
-- "to approve" RFPs → action: "approve" or "reject"
-- Draft sales orders → action: "confirm"
-- Overdue invoices not_paid → action: "remind" (send payment reminder)
+- "to approve" RFPs → action: "approve" or "reject" (these BLOCK purchasing, always high priority)
+- Draft sales orders → action: "confirm" (revenue is waiting, high priority for large amounts)
+- Overdue invoices not_paid → action: "remind" (send payment reminder — medium priority, not urgent since it's a follow-up)
 - Posted invoices partially paid → action: "pay" (register remaining payment)
 - Draft invoices → action: "confirm" (validate and post)
 - Completed/paid items → action: "none"
 
-For urgency: "immediate" for overdue/blocking, "soon" for drafts needing action, "normal" for low priority.
+CRITICAL urgency rules — be smart about what actually blocks operations:
+- "immediate": Items that BLOCK workflows and need human decision NOW — purchase orders awaiting approval, sales orders pending confirmation with large amounts, orders stuck in a blocked state
+- "soon": Draft items needing attention, overdue invoices needing reminders, invoices approaching due date — these need action but aren't blocking anyone
+- "normal": Low priority items, completed items, small amounts
+- Sending a payment reminder is NEVER "immediate" — it's a follow-up action, not a blocker. Use "soon" at most.
 
 Respond with ONLY a JSON array, no markdown, no explanation:
 [{"id":number,"type":"rfp|sales|invoice","aiPriority":"high|medium|low","aiSummary":"string","aiSuggestedAction":{"type":"approve|reject|confirm|pay|remind|follow_up|escalate|none","label":"short label (2-3 words)","description":"why this action (1 sentence)","urgency":"immediate|soon|normal"}}]`,

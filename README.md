@@ -12,7 +12,7 @@ A unified business operations dashboard that integrates **Claude AI** with **Odo
 
 ### AI Chat
 - Natural language interface powered by Claude (Anthropic SDK)
-- 23 AI tools across Odoo, Email, Calendar, and Tasks
+- 24 AI tools across Odoo, Email, Calendar, Tasks, and Reports
 - Multi-step tool calling with up to 5 iterations per request
 - Persistent chat history stored in Supabase
 - Context-aware responses with conversation memory
@@ -44,6 +44,20 @@ A unified business operations dashboard that integrates **Claude AI** with **Odo
 - Status tracking (pending, in_progress, completed, cancelled)
 - Due dates and tags
 - AI can manage tasks via chat
+
+### Reports
+- 7 on-demand business reports generated from Odoo ERP data
+- **Sales Summary** — Revenue, order counts by status, top customers
+- **Invoice Aging** — Overdue invoices in 0-30, 31-60, 61-90, 90+ day buckets
+- **Purchase Overview** — Spending by status, top vendors
+- **Revenue by Customer** — Revenue per customer from confirmed sales
+- **Product Performance** — Top products by quantity and revenue
+- **Accounts Receivable** — Outstanding balance per customer
+- **Master Report** — All-in-one comprehensive report combining all 6 types
+- Date range filtering with presets (last 30 days, this quarter, custom, etc.)
+- Interactive charts (bar, pie) and data tables
+- PDF export support
+- AI can generate reports via chat
 
 ### Settings & Profile
 - User profile management (name, email, timezone)
@@ -111,7 +125,7 @@ User message
 POST /api/chat
   │
   ├─ Load chat history from Supabase
-  ├─ Send to Claude with 23 tool definitions
+  ├─ Send to Claude with 24 tool definitions
   │
   ▼
 Claude decides tool calls (or responds directly)
@@ -121,7 +135,8 @@ tool-executor.ts routes by tool type:
   ├─ Odoo tools    → OdooService → OdooAdapter → JSON-RPC → Odoo server
   ├─ Email tools   → OutlookAdapter → Microsoft Graph API
   ├─ Calendar tools → OutlookCalendarAdapter → Microsoft Graph API
-  └─ Task tools    → TasksService → Supabase
+  ├─ Task tools    → TasksService → Supabase
+  └─ Report tools  → ReportService → OdooService → Odoo server
   │
   ▼
 Results returned to Claude → formatted response → saved to DB → streamed to UI
@@ -140,7 +155,7 @@ Results returned to Claude → formatted response → saved to DB → streamed t
 ┌──────────────────────────▼─────────────────────────────┐
 │                 API Routes (Next.js)                     │
 │  /api/chat  /api/odoo/*  /api/emails/*  /api/calendar/* │
-│  /api/tasks/*  /api/auth/*  /api/settings               │
+│  /api/tasks/*  /api/reports/*  /api/auth/*  /api/settings │
 └──────┬──────────┬──────────┬──────────┬────────────────┘
        │          │          │          │
   ┌────▼───┐ ┌───▼────┐ ┌──▼───┐ ┌───▼──────┐
@@ -163,6 +178,7 @@ ai-command-center/
 │   ├── calendar/page.tsx                  # Calendar view
 │   ├── tasks/page.tsx                     # Task management
 │   ├── odoo/page.tsx                      # Odoo ERP dashboard
+│   ├── reports/page.tsx                   # Reports dashboard
 │   ├── settings/
 │   │   ├── page.tsx                       # Settings home
 │   │   ├── profile/page.tsx              # Profile settings
@@ -185,6 +201,8 @@ ai-command-center/
 │       ├── tasks/
 │       │   ├── route.ts                  # List/Create tasks
 │       │   └── [id]/route.ts            # Get/Update task
+│       ├── reports/
+│           │   └── generate/route.ts      # Generate report (POST)
 │       └── odoo/
 │           ├── rfps/
 │           │   ├── route.ts              # List purchase orders
@@ -211,6 +229,9 @@ ai-command-center/
 │   │   ├── email/
 │   │   │   ├── EmailCard.tsx             # Email dashboard card
 │   │   │   └── EmailItem.tsx             # Single email row
+│   │   ├── reports/
+│   │   │   ├── ReportCard.tsx            # Report type card
+│   │   │   └── ReportResultDialog.tsx    # Report results viewer
 │   │   └── odoo/
 │   │       ├── OdooRfpCard.tsx           # Purchase orders card
 │   │       ├── OdooRfpItem.tsx           # Single PO row
@@ -258,7 +279,8 @@ ai-command-center/
 │   │   └── tools/
 │   │       ├── email-tools.ts           # 3 email tool definitions
 │   │       ├── calendar-tools.ts        # 2 calendar tool definitions
-│   │       └── task-tools.ts            # 3 task tool definitions
+│   │       ├── task-tools.ts            # 3 task tool definitions
+│   │       └── report-tools.ts          # 1 report tool definition
 │   ├── odoo/
 │   │   ├── tools.ts                     # 15 Odoo tool definitions
 │   │   ├── odoo.service.ts              # High-level Odoo service
@@ -268,6 +290,7 @@ ai-command-center/
 │   │   ├── email.service.ts             # Email business logic
 │   │   ├── email-cache.service.ts       # Email caching
 │   │   ├── calendar-cache.service.ts    # Calendar caching
+│   │   ├── report.service.ts             # Report generation (7 types)
 │   │   ├── odoo.service.ts              # Odoo dashboard API
 │   │   ├── odoo-action-log.service.ts   # Audit trail logging
 │   │   ├── tasks.service.ts             # Task management
@@ -357,6 +380,12 @@ ai-command-center/
 | `create_task` | WRITE | Create a new task with priority, due date, tags |
 | `complete_task` | WRITE | Mark a task as completed |
 
+### Report Tools (1)
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `generate_report` | READ | Generate a business report (sales_summary, invoice_aging, purchase_overview, revenue_by_customer, product_performance, accounts_receivable, master_report) with optional date range |
+
 ---
 
 ## API Reference
@@ -382,6 +411,12 @@ ai-command-center/
 | GET/POST | `/api/odoo/invoices/:id` | Get or action on invoice |
 | POST | `/api/odoo/tools/execute` | Execute any Odoo tool by name |
 | GET | `/api/odoo/actions` | View action audit log |
+
+### Reports
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/reports/generate` | Generate a report by type with optional date range |
 
 ### Email
 

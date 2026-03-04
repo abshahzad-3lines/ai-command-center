@@ -43,6 +43,9 @@ export default function DashboardPage() {
     title: string;
     description: string;
     execute: () => Promise<void>;
+    aiReasoning?: string;
+    steps?: string[];
+    urgency?: 'immediate' | 'soon' | 'normal';
   } | null>(null);
 
   // Odoo data for AI Priority card
@@ -174,13 +177,26 @@ export default function DashboardPage() {
     toast.success('Odoo data refreshed');
   };
 
-  const handleOdooAction = (item: { type: string; id: number; actionLabel: string; actionType?: string; amount?: number; name?: string; entity?: string }) => {
+  const handleOdooAction = (item: { type: string; id: number; actionLabel: string; actionType?: string; amount?: number; name?: string; entity?: string; aiSummary?: string; actionDescription?: string; urgency?: 'immediate' | 'soon' | 'normal' }) => {
     const actionType = item.actionType || item.actionLabel.toLowerCase().replace(/\s+/g, '_');
     const recordName = item.name || `#${item.id}`;
-    const entity = item.entity ? ` from ${item.entity}` : '';
+    const entity = item.entity || '';
+    const entitySuffix = entity ? ` from ${entity}` : '';
 
-    const buildConfirm = (title: string, description: string, execute: () => Promise<void>) => {
-      setOdooConfirm({ title, description, execute });
+    const buildConfirm = (
+      title: string,
+      description: string,
+      execute: () => Promise<void>,
+      steps: string[],
+    ) => {
+      setOdooConfirm({
+        title,
+        description,
+        execute,
+        aiReasoning: item.aiSummary || item.actionDescription,
+        steps,
+        urgency: item.urgency,
+      });
     };
 
     switch (actionType) {
@@ -188,47 +204,71 @@ export default function DashboardPage() {
       case 'review_&_approve':
         buildConfirm(
           'Approve Purchase Request',
-          `This will approve purchase request ${recordName}${entity} in Odoo. The order will move to "Purchase Order" status.`,
+          `Approve ${recordName}${entitySuffix} in Odoo.`,
           async () => {
             await approveRfp(item.id);
             toast.success(`RFP #${item.id} approved`);
             await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-          }
+          },
+          [
+            `Validate purchase request ${recordName} in Odoo`,
+            `Change status from "To Approve" to "Purchase Order"`,
+            `Notify vendor ${entity || 'supplier'} that the order is confirmed`,
+            'Refresh dashboard data to reflect the updated status',
+          ],
         );
         break;
       case 'reject':
         buildConfirm(
           'Reject Purchase Request',
-          `This will reject purchase request ${recordName}${entity} in Odoo. The order will be cancelled.`,
+          `Reject ${recordName}${entitySuffix} in Odoo.`,
           async () => {
             await rejectRfp(item.id);
             toast.success(`RFP #${item.id} rejected`);
             await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-          }
+          },
+          [
+            `Cancel purchase request ${recordName} in Odoo`,
+            `Change status to "Cancelled"`,
+            `No notification will be sent to ${entity || 'the vendor'}`,
+            'Refresh dashboard data to reflect the updated status',
+          ],
         );
         break;
       case 'confirm':
       case 'confirm_order':
         buildConfirm(
           'Confirm Sales Order',
-          `This will confirm sales order ${recordName}${entity} in Odoo. The quotation will become a confirmed sales order.`,
+          `Confirm ${recordName}${entitySuffix} in Odoo.`,
           async () => {
             await confirmOrder(item.id);
             toast.success(`Order #${item.id} confirmed`);
             await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-          }
+          },
+          [
+            `Convert quotation ${recordName} into a confirmed sales order`,
+            `Change status from "Quotation" to "Sales Order"`,
+            `Lock pricing and quantities for ${entity || 'the customer'}`,
+            'Refresh dashboard data to reflect the updated status',
+          ],
         );
         break;
       case 'remind':
       case 'send_reminder':
         buildConfirm(
           'Send Payment Reminder',
-          `This will send a friendly payment reminder for invoice ${recordName}${entity} via Odoo.`,
+          `Send a friendly payment reminder for ${recordName}${entitySuffix}.`,
           async () => {
             await sendReminder(item.id, 'friendly');
             toast.success(`Reminder sent for invoice #${item.id}`);
             await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-          }
+          },
+          [
+            `Generate a friendly payment reminder email for invoice ${recordName}`,
+            `Send the reminder to ${entity || 'the customer'} via Odoo`,
+            'Log the reminder activity on the invoice record',
+            'Refresh dashboard data after sending',
+          ],
         );
         break;
       case 'pay':
@@ -236,12 +276,18 @@ export default function DashboardPage() {
         if (item.amount) {
           buildConfirm(
             'Register Payment',
-            `This will register a payment of ${item.amount.toLocaleString()} for invoice ${recordName}${entity} in Odoo.`,
+            `Register a payment of ${item.amount.toLocaleString()} for ${recordName}${entitySuffix}.`,
             async () => {
               await registerPayment(item.id, item.amount!);
               toast.success(`Payment registered for invoice #${item.id}`);
               await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-            }
+            },
+            [
+              `Create a payment record of ${item.amount.toLocaleString()} in Odoo`,
+              `Apply the payment to invoice ${recordName}`,
+              'Update invoice payment status (Paid or Partially Paid)',
+              'Refresh dashboard data to reflect the updated balance',
+            ],
           );
         } else {
           toast.info('Navigate to Odoo page to register payment with specific amount');
@@ -254,11 +300,16 @@ export default function DashboardPage() {
       default:
         buildConfirm(
           'Confirm Action',
-          `This will execute "${item.actionLabel}" on ${item.type} ${recordName}${entity}.`,
+          `Execute "${item.actionLabel}" on ${item.type} ${recordName}${entitySuffix}.`,
           async () => {
             toast.info(`Action "${item.actionLabel}" for ${item.type} #${item.id}`);
             await Promise.all([refetchRfps(), refetchOrders(), refetchInvoices()]);
-          }
+          },
+          [
+            `Execute "${item.actionLabel}" on ${item.type} ${recordName}`,
+            'Update the record status in Odoo',
+            'Refresh dashboard data',
+          ],
         );
     }
   };
@@ -400,6 +451,9 @@ export default function DashboardPage() {
         title={odooConfirm?.title || ''}
         description={odooConfirm?.description || ''}
         onConfirm={odooConfirm?.execute || (async () => {})}
+        aiReasoning={odooConfirm?.aiReasoning}
+        steps={odooConfirm?.steps}
+        urgency={odooConfirm?.urgency}
       />
 
       {/* AI Chat Widget */}

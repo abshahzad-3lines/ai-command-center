@@ -10,6 +10,7 @@ import {
   Settings,
   LayoutDashboard,
   Building2,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { label: 'Calendar', href: '/calendar', icon: Calendar },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare },
   { label: 'Odoo ERP', href: '/odoo', icon: Building2 },
+  { label: 'Reports', href: '/reports', icon: BarChart3 },
   { label: 'Chat', href: '/chat', icon: MessageSquare },
 ];
 

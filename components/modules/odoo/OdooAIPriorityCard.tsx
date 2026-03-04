@@ -184,11 +184,11 @@ export function OdooAIPriorityCard({
           currency: invoice.currency,
           currencySymbol: invoice.currencySymbol,
           aiSummary: invoice.aiSummary,
-          aiPriority: invoice.isOverdue ? 'high' : (invoice.aiPriority || 'medium'),
+          aiPriority: invoice.isOverdue ? 'medium' : (invoice.aiPriority || 'medium'),
           actionType: invoice.aiSuggestedAction?.type || 'none',
           actionLabel: invoice.aiSuggestedAction?.label || 'Review',
           actionDescription: invoice.aiSuggestedAction?.description || 'Review this invoice',
-          urgency: invoice.isOverdue ? 'immediate' : (invoice.aiSuggestedAction?.urgency || 'normal'),
+          urgency: invoice.isOverdue ? 'soon' : (invoice.aiSuggestedAction?.urgency || 'normal'),
           date: invoice.invoiceDate,
           extra: invoice.isOverdue ? `${invoice.daysOverdue} days overdue` : undefined,
         });

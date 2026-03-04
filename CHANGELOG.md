@@ -1,5 +1,37 @@
 # AI Command Center - Development Log
 
+## Session 4 - March 4, 2026
+
+### Reports Module (New)
+- Added full reports page (`app/reports/page.tsx`) with 7 report types
+- Report service (`lib/services/report.service.ts`) generates structured reports from Odoo data with stats, charts, and tables
+- **Sales Summary** — revenue, order counts by status, top customers with pie/bar charts
+- **Invoice Aging** — overdue invoices in 30/60/90+ day buckets
+- **Purchase Overview** — spending by status, top vendors
+- **Revenue by Customer** — revenue per customer from confirmed sales
+- **Product Performance** — top products by quantity and revenue
+- **Accounts Receivable** — outstanding balance per customer
+- **Master Report** — all-in-one report combining all 6 types via `Promise.all()`
+- Date range filtering with presets (last 30 days, this quarter, custom, etc.)
+- Report results dialog with interactive Recharts charts and data tables
+- PDF export support via html2canvas + jsPDF
+- AI tool `generate_report` with 7 report types and optional date range
+- API endpoint `POST /api/reports/generate`
+
+### AI Priority Urgency Fix
+- Reworked urgency assignment logic across 4 layers (AI prompt, batch/single prompts, fallback defaults, frontend)
+- **Urgent/Immediate** now reserved for items that actually block operations: purchase orders awaiting approval, sales orders pending confirmation
+- **Soon** for overdue invoices, payment reminders, drafts needing attention — these are follow-ups, not blockers
+- Payment reminders are no longer marked as "Urgent" — downgraded to "Soon"
+- Updated Claude analysis prompts in `/api/odoo/analyze` and `odoo.service.ts` with explicit urgency rules
+- Removed frontend hard-override in `OdooAIPriorityCard.tsx` that forced all overdue invoices to `immediate`
+
+### Documentation
+- Updated README with reports feature, tool counts (24 tools), project structure, API reference
+- Updated CHANGELOG with Session 4
+
+---
+
 ## Session 3 - March 2, 2026
 
 ### Bug Fixes

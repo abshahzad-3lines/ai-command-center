@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, User, X, Clipboard } from 'lucide-react';
+import { Send, Bot, User, X, Reply, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface EmailContext {
   id: string;
@@ -18,12 +19,21 @@ interface SidebarMessage {
   content: string;
 }
 
+type ReplyTone = 'formal' | 'casual' | 'professional';
+
 interface EmailAISidebarProps {
   email: EmailContext;
-  onApplyReply: (text: string) => void;
   onClose: () => void;
   accessToken?: string | null;
   userId: string;
+  // Reply integration
+  replyDraft: string;
+  onReplyDraftChange: (text: string) => void;
+  onSendReply: () => void;
+  isSending: boolean;
+  onGenerateReply: (tone: ReplyTone) => void;
+  isGeneratingReply: boolean;
+  replyTone: ReplyTone | null;
 }
 
 const QUICK_ACTIONS = [
@@ -33,7 +43,19 @@ const QUICK_ACTIONS = [
   { label: 'Key Info', prompt: 'Extract the key information (dates, names, amounts, deadlines) from this email.' },
 ];
 
-export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, userId }: EmailAISidebarProps) {
+export function EmailAISidebar({
+  email,
+  onClose,
+  accessToken,
+  userId,
+  replyDraft,
+  onReplyDraftChange,
+  onSendReply,
+  isSending,
+  onGenerateReply,
+  isGeneratingReply,
+  replyTone,
+}: EmailAISidebarProps) {
   const [messages, setMessages] = useState<SidebarMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +71,6 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // Cleanup abort controller on unmount
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -70,7 +91,6 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
     setInput('');
     setIsLoading(true);
 
-    // Build conversation history for the API
     const conversationHistory = updatedMessages.map((m) => ({
       role: m.role,
       content: m.content,
@@ -91,7 +111,7 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
           message: text.trim(),
           accessToken,
           ephemeral: true,
-          conversationHistory: conversationHistory.slice(0, -1), // history before current message
+          conversationHistory: conversationHistory.slice(0, -1),
           emailContext: {
             id: email.id,
             subject: email.subject,
@@ -146,24 +166,29 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
     }
   };
 
+  const handleUseAsReply = (text: string) => {
+    onReplyDraftChange(text);
+    toast.success('Applied to reply draft');
+  };
+
   return (
-    <div className="flex flex-col h-full w-[380px] shrink-0 border-l pl-4">
+    <div className="flex flex-col h-full w-[480px] shrink-0 border-l pl-4">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b mb-3">
         <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium">AI Assistant</span>
+          <Bot className="h-5 w-5 text-primary" />
+          <span className="text-sm font-semibold">AI Assistant</span>
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Messages area */}
+      {/* Chat messages area */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
         {messages.length === 0 && !isLoading && (
-          <div className="flex flex-col items-center gap-3 pt-6 pb-4">
-            <p className="text-xs text-muted-foreground text-center">
+          <div className="flex flex-col items-center gap-3 pt-4 pb-3">
+            <p className="text-sm text-muted-foreground text-center">
               Ask me anything about this email
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
@@ -190,22 +215,22 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
           >
             <div
               className={cn(
-                'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
                 msg.role === 'user'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted'
               )}
             >
               {msg.role === 'user' ? (
-                <User className="h-3 w-3" />
+                <User className="h-3.5 w-3.5" />
               ) : (
-                <Bot className="h-3 w-3" />
+                <Bot className="h-3.5 w-3.5" />
               )}
             </div>
             <div className="flex flex-col gap-1 max-w-[85%]">
               <div
                 className={cn(
-                  'rounded-2xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap',
+                  'rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap',
                   msg.role === 'user'
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
@@ -217,10 +242,10 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="self-start h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => onApplyReply(msg.content)}
+                  className="self-start h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => handleUseAsReply(msg.content)}
                 >
-                  <Clipboard className="h-3 w-3 mr-1" />
+                  <Reply className="h-3 w-3 mr-1" />
                   Use as Reply
                 </Button>
               )}
@@ -230,8 +255,8 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
 
         {isLoading && (
           <div className="flex gap-2">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
-              <Bot className="h-3 w-3" />
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Bot className="h-3.5 w-3.5" />
             </div>
             <div className="flex items-center gap-1 rounded-2xl bg-muted px-3 py-2">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/50 [animation-delay:-0.3s]" />
@@ -244,8 +269,8 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="flex items-center gap-2 border-t pt-3 mt-3">
+      {/* Chat input */}
+      <div className="flex items-center gap-2 border-t pt-3 mt-2">
         <input
           ref={inputRef}
           type="text"
@@ -253,16 +278,74 @@ export function EmailAISidebar({ email, onApplyReply, onClose, accessToken, user
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask about this email..."
-          className="flex-1 bg-transparent text-xs focus:outline-none placeholder:text-muted-foreground"
+          className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
         />
         <Button
           onClick={() => sendMessage(input)}
           disabled={!input.trim() || isLoading}
           size="icon"
-          className="h-7 w-7 rounded-full"
+          className="h-8 w-8 rounded-full shrink-0"
         >
-          <Send className="h-3 w-3" />
+          <Send className="h-3.5 w-3.5" />
         </Button>
+      </div>
+
+      {/* Integrated Reply Section */}
+      <div className="border-t pt-3 mt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Reply className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">Reply</span>
+          </div>
+          <div className="flex items-center gap-1">
+            {(['formal', 'casual', 'professional'] as const).map((tone) => (
+              <Button
+                key={tone}
+                variant={replyTone === tone ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-7 px-2.5"
+                onClick={() => onGenerateReply(tone)}
+                disabled={isGeneratingReply}
+              >
+                {tone.charAt(0).toUpperCase() + tone.slice(1)}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {isGeneratingReply ? (
+          <div className="flex items-center justify-center py-4 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            <span className="text-sm">Generating {replyTone} reply...</span>
+          </div>
+        ) : (
+          <textarea
+            value={replyDraft}
+            onChange={(e) => onReplyDraftChange(e.target.value)}
+            placeholder="Click a tone above to generate, or type your reply..."
+            className="w-full min-h-[100px] max-h-[180px] rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+          />
+        )}
+
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={onSendReply}
+            disabled={!replyDraft.trim() || isSending}
+          >
+            {isSending ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Send Reply
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

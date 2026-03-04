@@ -85,29 +85,28 @@ export class OdooService {
     const rfps = await this.adapter.fetchRfps({ limit });
     const summaries = rfps.map(toRfpSummary);
 
-    // Add AI analysis to each RFP
-    const analyzed = await Promise.all(
-      summaries.map(async (summary) => {
-        try {
-          const analysis = await this.analyzeRfp(summary);
-          return {
-            ...summary,
-            aiSummary: analysis.summary,
-            aiPriority: analysis.priority,
-            aiSuggestedAction: analysis.suggestedAction,
-          };
-        } catch {
-          // Return without AI analysis if it fails
-          return {
-            ...summary,
-            aiPriority: this.getDefaultPriority(summary) as 'high' | 'medium' | 'low',
-            aiSuggestedAction: this.getDefaultRfpAction(summary),
-          };
-        }
-      })
+    // Batch AI analysis: one call for all records instead of N individual calls
+    const lines = summaries.map((s, i) =>
+      `${i}|[RFP] ${s.name} | Vendor: ${s.vendor} | ${s.currencySymbol}${s.amount.toFixed(2)} | Status: ${s.stateLabel} | Date: ${s.date.toLocaleDateString()}${s.origin ? ` | Origin: ${s.origin}` : ''}`
     );
+    const analyses = await this.batchAnalyze(lines);
 
-    return analyzed;
+    return summaries.map((summary, i) => {
+      const analysis = analyses[i];
+      if (analysis) {
+        return {
+          ...summary,
+          aiSummary: analysis.summary,
+          aiPriority: analysis.priority,
+          aiSuggestedAction: analysis.suggestedAction,
+        };
+      }
+      return {
+        ...summary,
+        aiPriority: this.getDefaultPriority(summary) as 'high' | 'medium' | 'low',
+        aiSuggestedAction: this.getDefaultRfpAction(summary),
+      };
+    });
   }
 
   async getRfp(id: number): Promise<OdooRfp | null> {
@@ -128,27 +127,27 @@ export class OdooService {
     const orders = await this.adapter.fetchSalesOrders({ limit });
     const summaries = orders.map(toSalesOrderSummary);
 
-    const analyzed = await Promise.all(
-      summaries.map(async (summary) => {
-        try {
-          const analysis = await this.analyzeSalesOrder(summary);
-          return {
-            ...summary,
-            aiSummary: analysis.summary,
-            aiPriority: analysis.priority,
-            aiSuggestedAction: analysis.suggestedAction,
-          };
-        } catch {
-          return {
-            ...summary,
-            aiPriority: this.getDefaultPriority(summary) as 'high' | 'medium' | 'low',
-            aiSuggestedAction: this.getDefaultSalesAction(summary),
-          };
-        }
-      })
+    const lines = summaries.map((s, i) =>
+      `${i}|[Sales Order] ${s.name} | Customer: ${s.customer} | ${s.currencySymbol}${s.amount.toFixed(2)} | Status: ${s.stateLabel} | Invoice: ${s.invoiceStatusLabel} | Date: ${s.date.toLocaleDateString()}`
     );
+    const analyses = await this.batchAnalyze(lines);
 
-    return analyzed;
+    return summaries.map((summary, i) => {
+      const analysis = analyses[i];
+      if (analysis) {
+        return {
+          ...summary,
+          aiSummary: analysis.summary,
+          aiPriority: analysis.priority,
+          aiSuggestedAction: analysis.suggestedAction,
+        };
+      }
+      return {
+        ...summary,
+        aiPriority: this.getDefaultPriority(summary) as 'high' | 'medium' | 'low',
+        aiSuggestedAction: this.getDefaultSalesAction(summary),
+      };
+    });
   }
 
   async getSalesOrder(id: number): Promise<OdooSalesOrder | null> {
@@ -169,27 +168,30 @@ export class OdooService {
     const invoices = await this.adapter.fetchInvoices({ limit });
     const summaries = invoices.map(toInvoiceSummary);
 
-    const analyzed = await Promise.all(
-      summaries.map(async (summary) => {
-        try {
-          const analysis = await this.analyzeInvoice(summary);
-          return {
-            ...summary,
-            aiSummary: analysis.summary,
-            aiPriority: analysis.priority,
-            aiSuggestedAction: analysis.suggestedAction,
-          };
-        } catch {
-          return {
-            ...summary,
-            aiPriority: this.getInvoicePriority(summary),
-            aiSuggestedAction: this.getDefaultInvoiceAction(summary),
-          };
-        }
-      })
-    );
+    const lines = summaries.map((s, i) => {
+      const overdueText = s.isOverdue
+        ? `OVERDUE ${s.daysOverdue} days`
+        : `Due: ${s.dueDate.toLocaleDateString()}`;
+      return `${i}|[Invoice] ${s.name} | Partner: ${s.partner} | Total: ${s.currencySymbol}${s.amount.toFixed(2)} | Due: ${s.currencySymbol}${s.amountDue.toFixed(2)} | Payment: ${s.paymentStateLabel} | ${overdueText}`;
+    });
+    const analyses = await this.batchAnalyze(lines);
 
-    return analyzed;
+    return summaries.map((summary, i) => {
+      const analysis = analyses[i];
+      if (analysis) {
+        return {
+          ...summary,
+          aiSummary: analysis.summary,
+          aiPriority: analysis.priority,
+          aiSuggestedAction: analysis.suggestedAction,
+        };
+      }
+      return {
+        ...summary,
+        aiPriority: this.getInvoicePriority(summary),
+        aiSuggestedAction: this.getDefaultInvoiceAction(summary),
+      };
+    });
   }
 
   async getInvoice(id: number): Promise<OdooInvoice | null> {
@@ -210,41 +212,33 @@ export class OdooService {
     return this.adapter.executeTool(toolName, args);
   }
 
-  // ============ AI Analysis Methods ============
+  // ============ AI Analysis ============
 
-  private static readonly AI_SYSTEM_PROMPT = `You are a business operations analyst. Analyze the given Odoo ERP record and respond with ONLY a JSON object (no markdown, no explanation):
+  private static readonly URGENCY_RULES = `
+Priority: high = items blocking workflows (awaiting approval, pending confirmation on large orders), medium = overdue invoices needing reminders / drafts needing confirmation, low = completed/small/no action.
+Urgency: "immediate" = ONLY for items blocking operations (purchase orders awaiting approval, sales orders pending confirmation). "soon" = overdue invoices, drafts needing attention. "normal" = low priority.
+IMPORTANT: Sending a payment reminder is NEVER "immediate" — reminders are follow-ups, not blockers. Use "soon" at most.`;
+
+  private static readonly AI_SINGLE_PROMPT = `You are a business operations analyst. Analyze the given Odoo ERP record and respond with ONLY a JSON object (no markdown, no explanation):
 {"summary":"brief 1-sentence summary of what needs attention","priority":"high|medium|low","action":{"type":"approve|reject|confirm|pay|remind|follow_up|escalate|none","label":"2-3 word button label","description":"1 sentence explaining why this action","urgency":"immediate|soon|normal"}}
+${OdooService.URGENCY_RULES}`;
 
-Priority rules: high = overdue/blocking/large amounts awaiting action, medium = drafts needing confirmation, low = completed/small/no action needed.`;
+  private static readonly BATCH_SYSTEM_PROMPT = `You are a business operations analyst. Analyze each Odoo ERP record below.
+Respond with ONLY a JSON array (no markdown, no explanation). Each element must match its index.
+Element format: {"summary":"brief 1-sentence summary","priority":"high|medium|low","action":{"type":"approve|reject|confirm|pay|remind|follow_up|escalate|none","label":"2-3 word button label","description":"1 sentence why","urgency":"immediate|soon|normal"}}
+${OdooService.URGENCY_RULES}`;
 
-  private async analyzeRfp(rfp: OdooRfpSummary): Promise<OdooAIAnalysis> {
-    const prompt = `[RFP] ${rfp.name} | Vendor: ${rfp.vendor} | ${rfp.currencySymbol}${rfp.amount.toFixed(2)} | Status: ${rfp.stateLabel} | Date: ${rfp.date.toLocaleDateString()}${rfp.origin ? ` | Origin: ${rfp.origin}` : ''}`;
-    return this.callAIStructured(prompt, rfp);
-  }
-
-  private async analyzeSalesOrder(order: OdooSalesOrderSummary): Promise<OdooAIAnalysis> {
-    const prompt = `[Sales Order] ${order.name} | Customer: ${order.customer} | ${order.currencySymbol}${order.amount.toFixed(2)} | Status: ${order.stateLabel} | Invoice: ${order.invoiceStatusLabel} | Date: ${order.date.toLocaleDateString()}`;
-    return this.callAIStructured(prompt, order);
-  }
-
-  private async analyzeInvoice(invoice: OdooInvoiceSummary): Promise<OdooAIAnalysis> {
-    const overdueText = invoice.isOverdue
-      ? `OVERDUE ${invoice.daysOverdue} days`
-      : `Due: ${invoice.dueDate.toLocaleDateString()}`;
-    const prompt = `[Invoice] ${invoice.name} | Partner: ${invoice.partner} | Total: ${invoice.currencySymbol}${invoice.amount.toFixed(2)} | Due: ${invoice.currencySymbol}${invoice.amountDue.toFixed(2)} | Payment: ${invoice.paymentStateLabel} | ${overdueText}`;
-    return this.callAIStructured(prompt, invoice);
-  }
-
-  private async callAIStructured(
-    prompt: string,
-    record: OdooRfpSummary | OdooSalesOrderSummary | OdooInvoiceSummary
+  /**
+   * Analyze a single record with AI. Used for on-demand analysis (e.g. from chat when a new order is created).
+   */
+  async analyzeSingleRecord(
+    recordLine: string
   ): Promise<OdooAIAnalysis> {
     try {
       const response = await this.aiAdapter.chat([
-        { role: 'user', content: `${OdooService.AI_SYSTEM_PROMPT}\n\nAnalyze: ${prompt}` },
+        { role: 'user', content: `${OdooService.AI_SINGLE_PROMPT}\n\nAnalyze: ${recordLine}` },
       ]);
 
-      // Parse structured JSON response
       let jsonText = response.trim();
       if (jsonText.startsWith('```')) {
         jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
@@ -253,7 +247,7 @@ Priority rules: high = overdue/blocking/large amounts awaiting action, medium = 
       const parsed = JSON.parse(jsonText);
 
       return {
-        summary: parsed.summary || `${record.name} requires attention`,
+        summary: parsed.summary || 'Needs review',
         priority: parsed.priority || 'medium',
         suggestedAction: {
           type: parsed.action?.type || 'none',
@@ -263,8 +257,71 @@ Priority rules: high = overdue/blocking/large amounts awaiting action, medium = 
         },
       };
     } catch {
-      // If JSON parsing fails, return a sensible default rather than broken data
       throw new Error('AI analysis returned invalid format');
+    }
+  }
+
+  /** Analyze a single RFP */
+  async analyzeRfp(rfp: OdooRfpSummary): Promise<OdooAIAnalysis> {
+    const line = `[RFP] ${rfp.name} | Vendor: ${rfp.vendor} | ${rfp.currencySymbol}${rfp.amount.toFixed(2)} | Status: ${rfp.stateLabel} | Date: ${rfp.date.toLocaleDateString()}${rfp.origin ? ` | Origin: ${rfp.origin}` : ''}`;
+    return this.analyzeSingleRecord(line);
+  }
+
+  /** Analyze a single sales order */
+  async analyzeSalesOrder(order: OdooSalesOrderSummary): Promise<OdooAIAnalysis> {
+    const line = `[Sales Order] ${order.name} | Customer: ${order.customer} | ${order.currencySymbol}${order.amount.toFixed(2)} | Status: ${order.stateLabel} | Invoice: ${order.invoiceStatusLabel} | Date: ${order.date.toLocaleDateString()}`;
+    return this.analyzeSingleRecord(line);
+  }
+
+  /** Analyze a single invoice */
+  async analyzeInvoice(invoice: OdooInvoiceSummary): Promise<OdooAIAnalysis> {
+    const overdueText = invoice.isOverdue
+      ? `OVERDUE ${invoice.daysOverdue} days`
+      : `Due: ${invoice.dueDate.toLocaleDateString()}`;
+    const line = `[Invoice] ${invoice.name} | Partner: ${invoice.partner} | Total: ${invoice.currencySymbol}${invoice.amount.toFixed(2)} | Due: ${invoice.currencySymbol}${invoice.amountDue.toFixed(2)} | Payment: ${invoice.paymentStateLabel} | ${overdueText}`;
+    return this.analyzeSingleRecord(line);
+  }
+
+  /**
+   * Analyze multiple records in a single AI call instead of N individual calls.
+   * Used by the WithAnalysis methods for dashboard bulk loads.
+   * Falls back to null entries on parse failure so callers can use defaults.
+   */
+  private async batchAnalyze(lines: string[]): Promise<(OdooAIAnalysis | null)[]> {
+    if (lines.length === 0) return [];
+
+    try {
+      const response = await this.aiAdapter.chat([
+        {
+          role: 'user',
+          content: `${OdooService.BATCH_SYSTEM_PROMPT}\n\nRecords:\n${lines.join('\n')}`,
+        },
+      ]);
+
+      let jsonText = response.trim();
+      if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+
+      const parsed = JSON.parse(jsonText);
+      if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
+
+      return lines.map((_, i) => {
+        const item = parsed[i];
+        if (!item) return null;
+        return {
+          summary: item.summary || 'Needs review',
+          priority: item.priority || 'medium',
+          suggestedAction: {
+            type: item.action?.type || 'none',
+            label: item.action?.label || 'Review',
+            description: item.action?.description || '',
+            urgency: item.action?.urgency || 'normal',
+          },
+        };
+      });
+    } catch {
+      return lines.map(() => null);
     }
   }
 
@@ -288,8 +345,8 @@ Priority rules: high = overdue/blocking/large amounts awaiting action, medium = 
       return {
         type: 'approve',
         label: 'Review & Approve',
-        description: 'RFP awaiting approval',
-        urgency: 'soon',
+        description: 'RFP awaiting approval — blocks purchasing',
+        urgency: 'immediate',
       };
     }
     return {
@@ -331,7 +388,7 @@ Priority rules: high = overdue/blocking/large amounts awaiting action, medium = 
         type: 'remind',
         label: 'Send Reminder',
         description: `Overdue by ${invoice.daysOverdue} days`,
-        urgency: 'immediate',
+        urgency: 'soon',
       };
     }
     if (invoice.paymentState === 'not_paid' && invoice.state === 'posted') {

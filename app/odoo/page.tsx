@@ -89,10 +89,18 @@ export default function OdooPage() {
     title: string;
     description: string;
     execute: () => Promise<void>;
+    aiReasoning?: string;
+    steps?: string[];
+    urgency?: 'immediate' | 'soon' | 'normal';
   } | null>(null);
 
-  const confirmAction = (title: string, description: string, execute: () => Promise<void>) => {
-    setActionConfirm({ title, description, execute });
+  const confirmAction = (
+    title: string,
+    description: string,
+    execute: () => Promise<void>,
+    extra?: { aiReasoning?: string; steps?: string[]; urgency?: 'immediate' | 'soon' | 'normal' },
+  ) => {
+    setActionConfirm({ title, description, execute, ...extra });
   };
 
   // Handlers
@@ -113,9 +121,11 @@ export default function OdooPage() {
 
   const handleApproveRfp = (id: number) => {
     const rfp = aiRfps.find(r => r.id === id);
+    const name = rfp?.name || `RFP #${id}`;
+    const vendor = rfp?.vendor || 'the vendor';
     confirmAction(
       'Approve Purchase Request',
-      `This will approve ${rfp?.name || `RFP #${id}`}${rfp?.vendor ? ` from ${rfp.vendor}` : ''}. The order will move to "Purchase Order" status in Odoo.`,
+      `Approve ${name}${rfp?.vendor ? ` from ${vendor}` : ''} in Odoo.`,
       async () => {
         try {
           await approveRfp(id);
@@ -123,15 +133,27 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to approve');
         }
-      }
+      },
+      {
+        aiReasoning: rfp?.aiSummary || rfp?.aiSuggestedAction?.description,
+        steps: [
+          `Validate purchase request ${name} in Odoo`,
+          `Change status from "To Approve" to "Purchase Order"`,
+          `Notify vendor ${vendor} that the order is confirmed`,
+          'Refresh page data to reflect the updated status',
+        ],
+        urgency: rfp?.aiSuggestedAction?.urgency,
+      },
     );
   };
 
   const handleRejectRfp = (id: number, reason?: string) => {
     const rfp = aiRfps.find(r => r.id === id);
+    const name = rfp?.name || `RFP #${id}`;
+    const vendor = rfp?.vendor || 'the vendor';
     confirmAction(
       'Reject Purchase Request',
-      `This will reject ${rfp?.name || `RFP #${id}`}${rfp?.vendor ? ` from ${rfp.vendor}` : ''}. The order will be cancelled in Odoo.${reason ? ` Reason: ${reason}` : ''}`,
+      `Reject ${name}${rfp?.vendor ? ` from ${vendor}` : ''} in Odoo.`,
       async () => {
         try {
           await rejectRfp(id, reason);
@@ -139,7 +161,17 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to reject');
         }
-      }
+      },
+      {
+        aiReasoning: rfp?.aiSummary || rfp?.aiSuggestedAction?.description || (reason ? `Reason: ${reason}` : undefined),
+        steps: [
+          `Cancel purchase request ${name} in Odoo`,
+          `Change status to "Cancelled"`,
+          `No notification will be sent to ${vendor}`,
+          'Refresh page data to reflect the updated status',
+        ],
+        urgency: rfp?.aiSuggestedAction?.urgency,
+      },
     );
   };
 
@@ -151,9 +183,11 @@ export default function OdooPage() {
 
   const handleConfirmOrder = (id: number) => {
     const order = aiOrders.find(o => o.id === id);
+    const name = order?.name || `Order #${id}`;
+    const customer = order?.customer || 'the customer';
     confirmAction(
       'Confirm Sales Order',
-      `This will confirm ${order?.name || `Order #${id}`}${order?.customer ? ` for ${order.customer}` : ''}. The quotation will become a confirmed sales order in Odoo.`,
+      `Confirm ${name}${order?.customer ? ` for ${customer}` : ''} in Odoo.`,
       async () => {
         try {
           await confirmOrder(id);
@@ -161,15 +195,27 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to confirm order');
         }
-      }
+      },
+      {
+        aiReasoning: order?.aiSummary || order?.aiSuggestedAction?.description,
+        steps: [
+          `Convert quotation ${name} into a confirmed sales order`,
+          `Change status from "Quotation" to "Sales Order"`,
+          `Lock pricing and quantities for ${customer}`,
+          'Refresh page data to reflect the updated status',
+        ],
+        urgency: order?.aiSuggestedAction?.urgency,
+      },
     );
   };
 
   const handleCancelOrder = (id: number) => {
     const order = aiOrders.find(o => o.id === id);
+    const name = order?.name || `Order #${id}`;
+    const customer = order?.customer || 'the customer';
     confirmAction(
       'Cancel Sales Order',
-      `This will cancel ${order?.name || `Order #${id}`}${order?.customer ? ` for ${order.customer}` : ''}. This action may not be reversible.`,
+      `Cancel ${name}${order?.customer ? ` for ${customer}` : ''} in Odoo.`,
       async () => {
         try {
           await cancelOrder(id);
@@ -177,7 +223,17 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to cancel order');
         }
-      }
+      },
+      {
+        aiReasoning: order?.aiSummary || order?.aiSuggestedAction?.description,
+        steps: [
+          `Cancel sales order ${name} in Odoo`,
+          `Change status to "Cancelled"`,
+          `Customer ${customer} will not be notified automatically`,
+          'Refresh page data to reflect the updated status',
+        ],
+        urgency: order?.aiSuggestedAction?.urgency,
+      },
     );
   };
 
@@ -189,9 +245,11 @@ export default function OdooPage() {
 
   const handleRegisterPayment = (id: number, amount: number) => {
     const invoice = aiInvoices.find(i => i.id === id);
+    const name = invoice?.name || `Invoice #${id}`;
+    const partner = invoice?.partner || 'the customer';
     confirmAction(
       'Register Payment',
-      `This will register a payment of ${amount.toLocaleString()} for ${invoice?.name || `Invoice #${id}`}${invoice?.partner ? ` from ${invoice.partner}` : ''} in Odoo.`,
+      `Register a payment of ${amount.toLocaleString()} for ${name}${invoice?.partner ? ` from ${partner}` : ''}.`,
       async () => {
         try {
           await registerPayment(id, amount);
@@ -199,16 +257,28 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to register payment');
         }
-      }
+      },
+      {
+        aiReasoning: invoice?.aiSummary || invoice?.aiSuggestedAction?.description,
+        steps: [
+          `Create a payment record of ${amount.toLocaleString()} in Odoo`,
+          `Apply the payment to invoice ${name}`,
+          'Update invoice payment status (Paid or Partially Paid)',
+          'Refresh page data to reflect the updated balance',
+        ],
+        urgency: invoice?.aiSuggestedAction?.urgency || (invoice?.isOverdue ? 'immediate' : undefined),
+      },
     );
   };
 
   const handleSendReminder = (id: number, type: 'friendly' | 'formal' | 'final_notice') => {
     const invoice = aiInvoices.find(i => i.id === id);
+    const name = invoice?.name || `Invoice #${id}`;
+    const partner = invoice?.partner || 'the customer';
     const typeLabel = type === 'friendly' ? 'friendly' : type === 'formal' ? 'formal' : 'final notice';
     confirmAction(
       'Send Payment Reminder',
-      `This will send a ${typeLabel} payment reminder for ${invoice?.name || `Invoice #${id}`}${invoice?.partner ? ` to ${invoice.partner}` : ''} via Odoo.`,
+      `Send a ${typeLabel} payment reminder for ${name}${invoice?.partner ? ` to ${partner}` : ''}.`,
       async () => {
         try {
           await sendReminder(id, type);
@@ -216,7 +286,17 @@ export default function OdooPage() {
         } catch (err) {
           toast.error(err instanceof Error ? err.message : 'Failed to send reminder');
         }
-      }
+      },
+      {
+        aiReasoning: invoice?.aiSummary || invoice?.aiSuggestedAction?.description || (invoice?.isOverdue ? `This invoice is ${invoice.daysOverdue} days overdue and requires follow-up.` : undefined),
+        steps: [
+          `Generate a ${typeLabel} payment reminder email for ${name}`,
+          `Send the reminder to ${partner} via Odoo`,
+          'Log the reminder activity on the invoice record',
+          'Refresh page data after sending',
+        ],
+        urgency: invoice?.aiSuggestedAction?.urgency || (invoice?.isOverdue ? 'immediate' : undefined),
+      },
     );
   };
 
@@ -387,6 +467,9 @@ export default function OdooPage() {
         title={actionConfirm?.title || ''}
         description={actionConfirm?.description || ''}
         onConfirm={actionConfirm?.execute || (async () => {})}
+        aiReasoning={actionConfirm?.aiReasoning}
+        steps={actionConfirm?.steps}
+        urgency={actionConfirm?.urgency}
       />
 
       {/* AI Chat Widget */}

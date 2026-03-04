@@ -13,6 +13,7 @@ import { odooTools } from '@/lib/odoo';
 import { emailTools } from '@/lib/ai/tools/email-tools';
 import { calendarTools } from '@/lib/ai/tools/calendar-tools';
 import { taskTools } from '@/lib/ai/tools/task-tools';
+import { reportTools } from '@/lib/ai/tools/report-tools';
 import { executeToolsForClaude } from '@/lib/ai/tool-executor';
 import type { ApiResponse } from '@/types';
 import type { Database } from '@/types/database';
@@ -119,6 +120,25 @@ Use search_odoo_records with model "res.partner" to look up the customer/vendor 
 - User: "What tasks do I have?" → Use search_tasks
 - User: "Add a task to review the proposal by Friday" → Use create_task with due_date
 - User: "Mark the report task as done" → Use search_tasks first to find the ID, then complete_task
+
+**Report Tools:**
+- generate_report: Generate a business report from Odoo data. Available types:
+  - sales_summary: Revenue, order counts by status, top customers
+  - invoice_aging: Overdue invoices in 0-30, 31-60, 61-90, 90+ day buckets
+  - purchase_overview: Spending by status, top vendors
+  - revenue_by_customer: Revenue per customer from confirmed sales
+  - product_performance: Top products by quantity and revenue
+  - accounts_receivable: Outstanding balance per customer
+  - master_report: All-in-one comprehensive report combining all 6 report types
+  Supports optional date_from and date_to params (YYYY-MM-DD) to filter by date range.
+
+**Report Examples:**
+- User: "Show me a sales report" → Use generate_report with report_type="sales_summary"
+- User: "What invoices are overdue?" → Use generate_report with report_type="invoice_aging"
+- User: "Who are our top customers by revenue?" → Use generate_report with report_type="revenue_by_customer"
+- User: "Generate an accounts receivable report" → Use generate_report with report_type="accounts_receivable"
+- User: "Generate a sales report for the last 6 months" → Use generate_report with report_type="sales_summary", date_from="2025-09-04", date_to="2026-03-04"
+- User: "Give me a full business overview" → Use generate_report with report_type="master_report"
 
 Be helpful, concise, and proactive. Format data in a readable way when presenting results. If an action fails, explain what went wrong and suggest alternatives.`;
 
@@ -228,43 +248,58 @@ export async function POST(
 
     // Build system prompt, augmenting with email context if provided
     let systemPrompt = SYSTEM_PROMPT;
-    if (emailContext) {
+    const hasEmailContext = !!emailContext;
+    if (hasEmailContext) {
       const emailBody = typeof emailContext.body === 'string'
         ? emailContext.body.slice(0, 3000)
         : '';
-      systemPrompt += `\n\n--- EMAIL CONTEXT ---
+      systemPrompt = `You are an AI email assistant for the AI Command Center dashboard. The user is viewing an email and asking you about it.
+
+--- EMAIL CONTEXT ---
 Subject: ${emailContext.subject || ''}
 From: ${emailContext.from || ''}
 Email Body:
 ${emailBody}
 --- END EMAIL CONTEXT ---
 
-The user is viewing this email and asking you about it. Help them with tasks like summarizing, drafting replies, extracting info, or any other request related to this email. When drafting reply text, write only the reply body (no subject line) and keep a professional tone unless asked otherwise.`;
+Help them with tasks like summarizing, drafting replies, extracting action items, key info, or any other request related to this email.
+
+When drafting a reply:
+- Write ONLY the reply body (no subject line, no greeting preamble like "Here's a draft reply:")
+- Start directly with the greeting (e.g., "Hi John,")
+- Keep a professional tone unless asked otherwise
+- Be concise but thorough
+
+Be helpful, concise, and format your responses clearly.`;
     }
 
-    // Chat with tool calling requires Claude adapter specifically because
-    // chatWithTools/continueWithToolResults are Claude-specific APIs.
-    // AI_PROVIDER config only affects email/Odoo analysis (which use the generic AIAdapter interface).
     const claudeAdapter = createClaudeAdapter();
 
-    // Merge all tool arrays
-    const allTools = [...odooTools, ...emailTools, ...calendarTools, ...taskTools];
-
-    // Get AI response with tool calling
     let aiResponse = '';
     try {
-      aiResponse = await processWithTools(
-        claudeAdapter,
-        chatMessages,
-        allTools,
-        systemPrompt,
-        5,
-        userId,
-        accessToken
-      );
+      if (hasEmailContext) {
+        // Email sidebar: simple chat without tools for speed and reliability
+        aiResponse = await claudeAdapter.chat([
+          { role: 'system', content: systemPrompt },
+          ...chatMessages,
+        ]);
+      } else {
+        // Full chat: use tool calling for Odoo, email, calendar, tasks
+        const allTools = [...odooTools, ...emailTools, ...calendarTools, ...taskTools, ...reportTools];
+        aiResponse = await processWithTools(
+          claudeAdapter,
+          chatMessages,
+          allTools,
+          systemPrompt,
+          5,
+          userId,
+          accessToken
+        );
+      }
     } catch (error) {
       console.error('AI processing error:', error);
-      aiResponse = "I'm sorry, I encountered an error processing your request. Please try again.";
+      const errMsg = error instanceof Error ? error.message : String(error);
+      aiResponse = `I'm sorry, I encountered an error: ${errMsg}`;
     }
 
     if (isEphemeral) {

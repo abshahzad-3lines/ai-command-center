@@ -207,7 +207,11 @@ provide actionable suggestions. Keep responses brief but informative.`;
       return content.text;
     } catch (error) {
       console.error('Chat error:', error);
-      throw new Error('Failed to generate response');
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('credit balance') || msg.includes('billing')) {
+        throw new Error('AI service unavailable: API credits exhausted. Please check your Anthropic billing.');
+      }
+      throw new Error(`Failed to generate response: ${msg}`);
     }
   }
 

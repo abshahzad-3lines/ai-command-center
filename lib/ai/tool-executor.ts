@@ -12,6 +12,8 @@ import { OutlookCalendarAdapter } from '@/lib/adapters/calendar/outlook.adapter'
 import { TasksService } from '@/lib/services/tasks.service';
 import { createClient } from '@/lib/supabase/server';
 import type { ToolResultBlock } from '@/lib/adapters/ai/claude.adapter';
+import { ReportService } from '@/lib/services/report.service';
+import type { ReportType, ReportDateRange } from '@/lib/services/report.service';
 import type {
   OdooRfp,
   OdooSalesOrder,
@@ -569,6 +571,7 @@ async function executeTaskTool(
 const EMAIL_TOOLS = ['search_emails', 'send_email', 'reply_to_email'];
 const CALENDAR_TOOLS = ['search_calendar_events', 'create_calendar_event'];
 const TASK_TOOLS = ['search_tasks', 'create_task', 'complete_task'];
+const REPORT_TOOLS = ['generate_report'];
 
 /**
  * Execute multiple tools and return results formatted for Claude
@@ -591,6 +594,8 @@ export async function executeToolsForClaude(
       result = await executeCalendarTool(tool.name, tool.input, accessToken);
     } else if (TASK_TOOLS.includes(tool.name)) {
       result = await executeTaskTool(tool.name, tool.input, userId);
+    } else if (REPORT_TOOLS.includes(tool.name)) {
+      result = await executeReportTool(tool.name, tool.input);
     } else {
       result = await executeOdooTool(tool.name, tool.input);
     }
@@ -622,6 +627,38 @@ export async function executeToolsForClaude(
   }
 
   return results;
+}
+
+/**
+ * Execute a report tool and return the result
+ */
+async function executeReportTool(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): Promise<ToolExecutionResult> {
+  try {
+    if (toolName === 'generate_report') {
+      const reportType = toolInput.report_type as ReportType;
+      const dateFrom = toolInput.date_from as string | undefined;
+      const dateTo = toolInput.date_to as string | undefined;
+      const dateRange: ReportDateRange | undefined =
+        dateFrom && dateTo ? { dateFrom, dateTo } : undefined;
+      const service = new ReportService();
+      const report = await service.generateReport(reportType, dateRange);
+      return {
+        success: true,
+        result: JSON.stringify(report, null, 2),
+        data: report,
+      };
+    }
+
+    return { success: false, result: `Unknown report tool: ${toolName}` };
+  } catch (error) {
+    return {
+      success: false,
+      result: `Error executing ${toolName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
 }
 
 // ============ Formatting Helpers ============

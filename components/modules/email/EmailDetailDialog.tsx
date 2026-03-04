@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { EmailAISidebar } from './EmailAISidebar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,10 +16,6 @@ import {
   Trash2,
   Archive,
   Sparkles,
-  Send,
-  Reply,
-  Loader2,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -61,18 +57,38 @@ export function EmailDetailDialog({
   userId,
 }: EmailDetailDialogProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isReplyMode, setIsReplyMode] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone | null>(null);
-  const [generatedReply, setGeneratedReply] = useState('');
+  const [replyDraft, setReplyDraft] = useState('');
   const [isGeneratingReply, setIsGeneratingReply] = useState(false);
-  const [replyEdited, setReplyEdited] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Auto-resize iframe to fit email content
+  const resizeIframe = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentDocument?.body) return;
+    iframe.style.height = iframe.contentDocument.body.scrollHeight + 'px';
+  }, []);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !email?.body) return;
+
+    const handleLoad = () => {
+      resizeIframe();
+      const images = iframe.contentDocument?.querySelectorAll('img');
+      images?.forEach((img) => {
+        if (!img.complete) img.addEventListener('load', resizeIframe);
+      });
+    };
+
+    iframe.addEventListener('load', handleLoad);
+    return () => iframe.removeEventListener('load', handleLoad);
+  }, [email?.body, resizeIframe]);
 
   const resetState = () => {
-    setIsReplyMode(false);
     setReplyTone(null);
-    setGeneratedReply('');
+    setReplyDraft('');
     setIsGeneratingReply(false);
-    setReplyEdited(false);
     setIsSidebarOpen(false);
   };
 
@@ -84,14 +100,8 @@ export function EmailDetailDialog({
   const handleGenerateReply = async (tone: ReplyTone) => {
     if (!email) return;
 
-    if (replyEdited && generatedReply && tone !== replyTone) {
-      const confirmed = window.confirm('Switching tone will replace your edits. Continue?');
-      if (!confirmed) return;
-    }
-
     setReplyTone(tone);
     setIsGeneratingReply(true);
-    setReplyEdited(false);
 
     try {
       const reply = await generateReply(
@@ -101,7 +111,7 @@ export function EmailDetailDialog({
         email.body || email.preview,
         tone
       );
-      setGeneratedReply(reply);
+      setReplyDraft(reply);
     } catch {
       toast.error('Failed to generate reply');
     } finally {
@@ -110,13 +120,13 @@ export function EmailDetailDialog({
   };
 
   const handleSendReply = async () => {
-    if (!email || !generatedReply.trim()) return;
+    if (!email || !replyDraft.trim()) return;
 
     try {
       await sendEmail(
         [email.from.email],
         `Re: ${email.subject}`,
-        generatedReply
+        replyDraft
       );
       toast.success('Reply sent');
       resetState();
@@ -126,25 +136,12 @@ export function EmailDetailDialog({
     }
   };
 
-  const handleCancelReply = () => {
-    setIsReplyMode(false);
-    setGeneratedReply('');
-    setReplyTone(null);
-    setReplyEdited(false);
-  };
-
-  const handleApplyReply = (text: string) => {
-    setGeneratedReply(text);
-    setIsReplyMode(true);
-    setReplyEdited(true);
-  };
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         className={cn(
           'w-full max-h-[90vh] overflow-hidden flex flex-col transition-all',
-          isSidebarOpen ? 'sm:max-w-7xl' : 'sm:max-w-5xl'
+          isSidebarOpen ? 'sm:max-w-[90vw]' : 'sm:max-w-5xl'
         )}
       >
         <DialogHeader>
@@ -166,86 +163,19 @@ export function EmailDetailDialog({
           <div className="flex-1 min-h-0 flex flex-row gap-0">
             {/* Email content column */}
             <div className="flex-1 min-w-0 flex flex-col">
-              {/* Email body */}
-              <div className={cn('py-4 overflow-y-auto', isReplyMode ? 'h-[35vh]' : 'h-[65vh]')}>
-                <div
-                  className="prose prose-sm dark:prose-invert max-w-none overflow-hidden break-words [&_img]:!max-w-full [&_img]:h-auto [&_table]:!max-w-full [&_table]:!w-full [&_table]:table-fixed [&_td]:break-words [&_td]:overflow-hidden [&_th]:break-words [&_th]:overflow-hidden [&_pre]:!max-w-full [&_pre]:overflow-x-auto [&_div]:!max-w-full [&_span]:!max-w-full [&_p]:!max-w-full [&_*]:!box-border"
-                  style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-                  dangerouslySetInnerHTML={{ __html: email.body || email.preview }}
+              {/* Email body — rendered in an iframe so HTML email styles are isolated */}
+              <div className="py-4 overflow-y-auto h-[65vh]">
+                <iframe
+                  ref={iframeRef}
+                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;word-break:break-word;overflow-wrap:anywhere}img{max-width:100%!important;height:auto}table{max-width:100%!important}pre{max-width:100%;overflow-x:auto}a{color:#2563eb}@media(prefers-color-scheme:dark){body{color:#e5e5e5;background:#0a0a0a}a{color:#60a5fa}}</style></head><body>${email.body || email.preview}</body></html>`}
+                  className="w-full border-0 min-h-[200px]"
+                  sandbox="allow-same-origin"
+                  title="Email content"
                 />
               </div>
-
-              {/* AI Reply Section */}
-              {isReplyMode && (
-                <div className="border-t pt-4 mt-2 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">AI Reply</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {(['formal', 'casual', 'professional'] as const).map((tone) => (
-                        <Button
-                          key={tone}
-                          variant={replyTone === tone ? 'default' : 'outline'}
-                          size="sm"
-                          className="text-xs h-7 px-2.5"
-                          onClick={() => handleGenerateReply(tone)}
-                          disabled={isGeneratingReply}
-                        >
-                          {tone.charAt(0).toUpperCase() + tone.slice(1)}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {isGeneratingReply ? (
-                    <div className="flex items-center justify-center py-8 text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      <span className="text-sm">Generating {replyTone} reply...</span>
-                    </div>
-                  ) : generatedReply ? (
-                    <textarea
-                      value={generatedReply}
-                      onChange={(e) => {
-                        setGeneratedReply(e.target.value);
-                        setReplyEdited(true);
-                      }}
-                      className="w-full min-h-[120px] max-h-[200px] rounded-lg border bg-background px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center py-8 text-muted-foreground">
-                      <span className="text-sm">Select a tone above to generate a reply</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={handleCancelReply}>
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSendReply}
-                      disabled={!generatedReply.trim() || isSending}
-                    >
-                      {isSending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="h-4 w-4 mr-2" />
-                          Send Reply
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* AI Sidebar */}
+            {/* AI Sidebar with integrated reply */}
             {isSidebarOpen && (
               <EmailAISidebar
                 email={{
@@ -254,10 +184,16 @@ export function EmailDetailDialog({
                   from: email.from,
                   body: email.body || email.preview,
                 }}
-                onApplyReply={handleApplyReply}
                 onClose={() => setIsSidebarOpen(false)}
                 accessToken={accessToken}
                 userId={userId}
+                replyDraft={replyDraft}
+                onReplyDraftChange={setReplyDraft}
+                onSendReply={handleSendReply}
+                isSending={isSending}
+                onGenerateReply={handleGenerateReply}
+                isGeneratingReply={isGeneratingReply}
+                replyTone={replyTone}
               />
             )}
           </div>
@@ -270,23 +206,8 @@ export function EmailDetailDialog({
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           >
             <Sparkles className="h-4 w-4 mr-2" />
-            AI Assistant
+            {isSidebarOpen ? 'Hide AI Assistant' : 'AI Assistant & Reply'}
           </Button>
-          {isReplyMode ? (
-            <Button variant="outline" size="sm" onClick={handleCancelReply}>
-              <X className="h-4 w-4 mr-2" />
-              Cancel Reply
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsReplyMode(true)}
-            >
-              <Reply className="h-4 w-4 mr-2" />
-              Reply
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"
